@@ -1,0 +1,64 @@
+# The true potential of `policy`: not "write `allow` right next to the
+# `requires` I just declared" -- policy_library.sns declares NO policy at
+# all, on purpose. This file imports that shared library and decides, in
+# three completely independent scopes, what each one is actually allowed
+# to do with it -- without changing a single line of the library's code.
+#
+# The mechanism that makes this real, not cosmetic: a capability check
+# resolves against the *caller's* environment at the call site
+# (Interpreter._call_tool/_verify_action/_commit_action all take `env`
+# from wherever the call happened), not the tool's own declaration-time
+# scope. `policy` lives on `Environment` and is scoped/inherited exactly
+# like a variable -- a `session`'s own `policy:` block only ever applies
+# inside that session, and never leaks to its siblings or back out.
+#
+# In a real system, "the library" is written by a platform/security team
+# (or is a third-party package), and each session below is a different
+# caller with a different trust level -- a support tier, an on-call
+# engineer, an autonomous agent -- deciding independently what it may do
+# with the exact same shared capabilities.
+
+import "./policy_library.sns" as lib
+
+# -- Scope 1: first-line support. Can email a receipt, but has no
+# authority to actually move money.
+session first_line_support:
+    policy:
+        deny payment.refund
+        allow email.send
+
+    receipt = lib.send_receipt("customer@example.com", "ORD-104")
+    print("[first line] " + receipt)
+
+    # Uncomment to see policy actually stop it -- this crashes the
+    # script right here with SensePolicyError, proving the denial is
+    # real, not just documentation:
+    # lib.refund_customer("ORD-104", 40)
+
+# -- Scope 2: senior support. Exact same imported `refund_customer` --
+# nothing about its code changed -- just a broader policy around the call.
+session senior_support:
+    policy:
+        allow payment.refund
+        allow email.send
+
+    refund = lib.refund_customer("ORD-104", 40)
+    print("[senior] " + refund)
+
+# -- Scope 3: incident response. Needs `data.delete`, which neither
+# support scope above has -- and still goes through the full
+# prepare -> verify -> commit lifecycle, since it's an `action`, not a `tool`.
+session incident_response:
+    policy:
+        allow data.delete
+
+    cleanup = lib.delete_customer_data("cust-9981")
+    cleanup.verify()
+    cleanup.commit()
+
+# Outside every session, none of these three policies apply -- capability
+# resolution has already walked back out to whatever the top-level
+# default is (allow, since nothing here sets one). That's exactly why
+# real autonomous/agentic code should run inside a session with its own
+# explicit, restrictive policy, rather than relying on the top-level
+# default to protect anything.

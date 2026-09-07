@@ -1,0 +1,32 @@
+# Phase 2: model / ask / answer.
+#
+# `ask(...)` never talks to a vendor API directly -- it asks whichever
+# model is currently delegated to. Here we delegate to an offline mock model
+# so this example needs no network access or API key.
+#
+# There is no `model` keyword: inference(...) already returns a Model
+# value, so an ordinary assignment is enough -- the runtime type carries
+# the meaning, not a declaration keyword.
+
+model reasoning = inference("mock", "demo-mock", response_template: "I think the answer relates to: {prompt}")
+set delegation = reasoning
+
+result = ask("what database should we use?")
+
+print(type_of(result))
+print(result)
+print(result.value)
+print(result.confidence)
+print(result.source)
+
+# A typed answer binding -- `answer<T>` is spelled lowercase in an
+# annotation, same as every other type, narrowed to primitive payload
+# types for now (no structs yet).
+country: answer<String> = ask("is the sky blue?")
+print(country.value)
+
+# Explicit form: call .ask() directly on a specific model, bypassing
+# delegation entirely.
+model backup = inference("mock", "backup-mock")
+backup_result = backup.ask("plan B")
+print(backup_result)

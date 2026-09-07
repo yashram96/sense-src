@@ -1,0 +1,44 @@
+# A real email, sent via smtplib (Python's stdlib), wrapped in an
+# `irreversible action` -- gated behind a capability, and previewable
+# with --dry-run before anything is sent.
+#
+# Configured for a local smtp4dev instance: no real credentials exist for
+# smtp4dev to protect (it's a local catch-all that never delivers
+# anywhere), so hardcoding host/port here is fine -- that's different
+# from hardcoding a real provider's password, which still belongs in an
+# environment variable, never in source (see the `if os.environ.get(...)`
+# guard this file used before switching to smtp4dev).
+#
+# Adjust SMTP_HOST/SMTP_PORT below to match your smtp4dev instance, then:
+#   sense run --dry-run examples/real_email_action.sns   # preview -- nothing sent
+#   sense run examples/real_email_action.sns             # actually sends -- check smtp4dev's web UI
+#
+# `email.send` is `irreversible` on purpose -- there's no `rollback`
+# block, because you cannot actually unsend an email. `reversible` is for
+# effects with a genuine undo (see examples/action_rollback.sns); this
+# isn't one, and pretending otherwise would be dishonest.
+
+import python "smtplib" as smtplib
+
+SMTP_HOST: String = "localhost"
+SMTP_PORT: Int = 25          # smtp4dev's default SMTP port -- change if yours differs
+SMTP_FROM: String = "sense@example.com"
+SMTP_TO: String = "test@example.com"
+
+irreversible action send_real_email(to: String, subject: String, body: String) requires email.send:
+    message = "From: " + SMTP_FROM + "\r\nTo: " + to + "\r\nSubject: " + subject + "\r\n\r\n" + body
+    print("*********")
+    print(message)
+    print("*********")
+    server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+    server.sendmail(SMTP_FROM, [to], message)
+    server.quit()
+    print("sent to " + to + " via " + SMTP_HOST + ":" + str(SMTP_PORT))
+
+policy:
+    allow email.send
+
+mail = send_real_email(SMTP_TO, "Hello from Sense", "This was really sent by smtplib, wrapped in a Sense action, caught by smtp4dev.")
+mail.verify()
+mail.commit()
+print("state: " + mail.state)

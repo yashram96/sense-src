@@ -1,0 +1,31 @@
+# A declared "requires approval" marker on an action, composed with
+# ask_human (see examples/ask_human.sns), plus the audit log that now
+# records every prepare/verify/commit/deny/fail event.
+
+irreversible action delete_account(user: String) requires account.delete, approval:
+    print("DELETING " + user)
+
+policy: allow account.delete
+
+a = delete_account("bob")
+a.verify()
+print("approved before asking: " + str(a.approved))  # false
+
+# The action mandates approval -- committing without it is an error, not
+# just something the caller forgot to add manually:
+# a.commit()  # would raise SenseApprovalError
+
+agent reviewer:
+    answer = ask_human("approve deleting bob? (yes/no)")
+    if answer == "yes":
+        a.approve()
+
+start(reviewer)
+resume(reviewer, "yes")
+
+print("approved after asking: " + str(a.approved))  # true
+a.commit()
+
+print("---- audit log ----")
+for line in audit_log():
+    print(line)

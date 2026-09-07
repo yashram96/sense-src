@@ -1,0 +1,135 @@
+---
+title: Quickstart
+description: Install the Sense interpreter and run your first program in about two minutes.
+---
+
+## Install
+
+```bash
+pip install sense-lang
+```
+
+Requires Python 3.10+. This installs the `sense` command along with the
+interpreter itself — no other runtime dependency.
+
+## Run a file
+
+Create `hello.sns`:
+
+```sns hello.sns
+print("hello, sense")
+```
+
+Run it:
+
+```bash
+sense run hello.sns
+```
+
+```txt
+hello, sense
+```
+
+## Try the REPL
+
+```bash
+sense repl
+# or just: sense
+```
+
+```txt
+Sense 0.20.0 — interactive REPL ('exit' to quit)
+sense> x = 5
+sense> print(x * 2)
+10
+sense> exit
+```
+
+Typing `sense` with no arguments does the same thing — the same
+convenience bare `python` has (`sense --help` still lists every
+subcommand).
+
+<Info>
+Sense blocks are indentation, like Python's — the REPL keeps prompting with
+`...` while a block (anything ending in `:`) is open, and a blank line ends
+it. See [CLI Reference](/reference/cli) for the full behavior.
+</Info>
+
+## A slightly bigger example
+
+```sns fib.sns
+def fib(n) -> Int:
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+i = 0
+while i < 10:
+    print(fib(i))
+    i = i + 1
+```
+
+```bash
+sense run fib.sns
+```
+
+```txt
+0
+1
+1
+2
+3
+5
+8
+13
+21
+34
+```
+
+## The AI-native part
+
+Everything above is Sense's deterministic core — no different in spirit
+from Python. Here's the part that isn't: `ask()`, running entirely
+offline against a mock model so this needs no API key.
+
+```sns reason_demo.sns
+model reasoning = inference("mock", "demo", response_template: "I think: {prompt}")
+set delegation = reasoning
+
+result = ask("what database should we use?")
+
+print(result.value)        # the model's answer
+print(result.confidence)   # how sure it was, as a plain readable number
+```
+
+```bash
+sense run reason_demo.sns
+```
+
+```txt
+I think: what database should we use?
+0.5
+```
+
+`result` is an `Answer`, not a plain string — accessing `.value` is
+mandatory, so there's never a moment where AI-generated output silently
+looks identical to a fact your code computed itself. See
+[Model, Ask & Answer](/ai-native/model-ask-answer) for the full
+picture, including how to scope which model is active with `session`.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Tutorials" icon="graduation-cap" href="/tutorials/ask-a-model">
+    Three short, hands-on walkthroughs — start with "Ask a Model."
+  </Card>
+  <Card title="Which keyword do I want?" icon="list-check" href="/reference/keywords#which-keyword-do-i-want">
+    `def` vs `tool` vs `action` vs `agent` — a one-glance decision guide.
+  </Card>
+  <Card title="Language guide" icon="book-open" href="/language/values-and-types">
+    Values, scoping, functions, control flow, modules.
+  </Card>
+  <Card title="Actions & policy" icon="shield-check" href="/safety/actions">
+    How Sense makes world-changing operations safe by construction.
+  </Card>
+</CardGroup>

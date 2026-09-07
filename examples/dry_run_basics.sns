@@ -1,0 +1,48 @@
+# `--dry-run` -- run this file two ways and compare:
+#
+#   sense run examples/dry_run_basics.sns              # the real thing
+#   sense run --dry-run examples/dry_run_basics.sns    # a preview, nothing actually happens
+#
+# The use case: before pointing a batch job like this at real users, run
+# it with --dry-run to see exactly what it WOULD do -- how many emails,
+# to whom, and whether an account deletion would even be allowed by
+# policy -- without actually sending anything or deleting anything.
+#
+# What to look for: the "-> actually ..." lines below live *inside* the
+# action bodies -- the real effect. In dry-run mode those lines vanish
+# completely, but every count/summary line (ordinary top-level code, not
+# inside an action) still prints exactly the same, and `sense run
+# --dry-run` prints its own trailing summary of everything that would
+# have committed.
+
+reversible action send_email(to: String, subject: String) requires email.send:
+    print("  -> actually sending to " + to)
+rollback:
+    print("  -> recalling email to " + to)
+
+irreversible action delete_account(user: String) requires account.delete:
+    print("  -> actually deleting " + user)
+
+policy:
+    allow email.send
+    allow account.delete
+
+recipients = ["alice@example.com", "bob@example.com", "carol@example.com"]
+
+print("=== sending weekly digest to " + str(len(recipients)) + " users ===")
+sent = 0
+for person in recipients:
+    mail = send_email(person, "Your weekly digest")
+    mail.verify()
+    mail.commit()
+    sent = sent + 1
+
+print("")
+print("=== cleaning up one inactive account ===")
+cleanup = delete_account("inactive_user@example.com")
+cleanup.verify()
+cleanup.commit()
+
+print("")
+print("=== summary ===")
+print(str(sent) + " emails processed, 1 account processed")

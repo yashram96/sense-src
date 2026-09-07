@@ -1,0 +1,219 @@
+# An SRE incident-response copilot -- one coherent, runnable scenario
+# exercising most of Sense's feature surface for a real reason, not as a
+# checklist. Run it:
+#
+# sense run examples/incident_response/main.sns
+# sense run --dry-run examples/incident_response/main.sns   # preview the
+# remediation/paging actions with no real effect -- works for free,
+# no code here needed to support it (see docs "Dry run").
+#
+# The story: three incidents come in off a monitoring feed. For each one,
+# two diagnostics run concurrently and report back to a coordinator; then,
+# based on severity, the incident is either auto-remediated (low severity)
+# or escalated to a human (high severity) -- and a *session-scoped policy*
+# is what actually enforces that split, not just the script's own
+# if/else, so a bug in the branching logic still can't auto-remediate a
+# high-severity incident or page someone for a low-severity one.
+#
+# What's deliberately NOT wired in, and why:
+# - ask_with_tools()/skill() need a real model (MockModelProvider
+# doesn't implement tool-calling -- simulating a model's own judgement
+# would be dishonest, not a useful mock). Included below, but gated
+# behind a real ANTHROPIC_API_KEY so this file stays runnable/free
+# without one.
+# - connect_mcp() needs a real external MCP server subprocess -- a
+# genuine paging/ticketing system's MCP server is exactly where it
+# would plug in here, but faking one would mean shipping a call that
+# errors for everyone who runs this file. See tests/test_mcp_client.py
+# for a real (tiny, in-process) MCP server fixture if you want to wire
+# one in yourself.
+
+import python "os" as os
+import python "json" as json
+
+import "./runbook_library.sns" as ops
+
+# -- Durable incident log: an append-only, versioned SQLite-backed
+# `persistent memory` -- deleted first so re-running this example starts
+# clean, same convention as examples/persistent_memory_basics.sns. An
+# explicit path is given (rather than the per-script default location a
+# bare `persistent memory incident_ledger` would use) specifically so
+# this cleanup step and the actual file always agree on where it is.
+if os.path.exists("incident_ledger.sense_memory.db"):
+    os.remove("incident_ledger.sense_memory.db")
+persistent memory incident_ledger: "incident_ledger.sense_memory.db"
+
+# -- Ephemeral scratch memory for the triage narrative below (session
+# memory, not persisted -- gone once the process exits).
+memory triage_notes: "working"
+
+# -- A pure decision function, tested before anything relies on it. Real
+# severity->policy mapping lives on this, and on the two `policy:` blocks
+# below -- not scattered as inline string comparisons everywhere.
+def is_auto_remediable(severity: String) -> Bool:
+    return severity == "low"
+
+test "low severity is auto-remediable":
+    assert(is_auto_remediable("low") == true)
+
+test "high severity requires escalation, not auto-remediation":
+    assert(is_auto_remediable("high") == false)
+
+# -- Offline-by-default reasoning: a deterministic mock model narrates
+# each incident. `ask_with_memory` works with inference("mock", ...) (it
+# composes retrieval + a plain ask() call) -- unlike ask_with_tools below,
+# which genuinely needs a real model's own judgement.
+model triage_model = inference("mock", "triage-assistant", response_template: "triage note -- {prompt}")
+set delegation = triage_model
+
+# -- Advanced, optional: a real model choosing which diagnostic tool to
+# run, using the exact same ops.check_service_health/ops.lookup_runbook
+# tools declared in the library -- ask_with_tools()/skill() need a
+# real provider (see the header comment), so this is skipped gracefully
+# without ANTHROPIC_API_KEY rather than faking a result.
+if os.environ.get("ANTHROPIC_API_KEY") == nil:
+    print("(skipping the real-model tool-selection demo -- set ANTHROPIC_API_KEY to see it)")
+else:
+    diagnostics = skill("diagnostics", "check a service's live health or look up its runbook", [ops.check_service_health, ops.lookup_runbook])
+    model claude = inference("anthropic")
+    set delegation = claude
+    triage_call = ask_with_tools("auth-service is reporting disk_full -- what do you recommend?", [diagnostics])
+    print("model recommendation: " + triage_call.value)
+    set delegation = triage_model  # back to the offline default for the rest of the file
+
+# -- The incident feed. A real system would pull this from a webhook or a
+# queue; parsed here with genuine Python interop (json.loads), not a
+# Sense array literal pretending to be external data.
+raw_incidents = "[{\"service\": \"checkout-api\", \"severity\": \"low\", \"issue\": \"high_latency\", \"oncall\": \"none\"}, {\"service\": \"payments-api\", \"severity\": \"low\", \"issue\": \"high_latency\", \"oncall\": \"none\"}, {\"service\": \"auth-service\", \"severity\": \"high\", \"issue\": \"disk_full\", \"oncall\": \"priya\"}]"
+incidents = json.loads(raw_incidents)
+
+for incident in incidents:
+    service = incident["service"]
+    severity = incident["severity"]
+    issue = incident["issue"]
+
+    print("")
+    print("=== incident: " + service + " (" + severity + " / " + issue + ") ===")
+    note = ask_with_memory("what do we already know about " + service + "?", triage_notes)
+    print(note.value)
+    triage_notes.remember(service, issue)
+
+    # `session` is its own execution/context boundary -- a fresh
+    # delegation/policy scope, same as `agent`. Everything for this one
+    # incident, including its remediate-vs-escalate policy decision, lives
+    # and dies inside it.
+    session handle_incident:
+
+        # -- Fan-out/fan-in: two independent diagnostics run concurrently
+        # on their own threads and report back to a coordinator over a
+        # mailbox, not a shared variable (which would race between them).
+        # Both tool calls happen *inside an agent's own body* -- watch for
+        # "(via agent:...)" in the audit log printed at the very end.
+        async agent disk_investigator:
+            health = ops.check_service_health(service)
+            send(triage_coordinator, "health check: " + health)
+
+        async agent network_investigator:
+            runbook = ops.lookup_runbook(issue)
+            send(triage_coordinator, "runbook says: " + runbook)
+
+        async agent triage_coordinator:
+            finding_a = receive()
+            finding_b = receive()
+            print("  " + finding_a)
+            print("  " + finding_b)
+
+        start(disk_investigator)
+        start(network_investigator)
+        start(triage_coordinator)
+
+        # Ordering, not just messaging: remediation must not even begin
+        # until *both* diagnostics have actually reported in -- awaiting
+        # the coordinator (which itself blocks on two receive() calls)
+        # gives that guarantee, the same "start C only after A and B
+        # settle" pattern as starting C after await(A); await(B) directly.
+        await(triage_coordinator)
+        await(disk_investigator)
+        await(network_investigator)
+
+        incident_ledger.remember(service, "triaged: " + issue)
+
+        if is_auto_remediable(severity):
+            policy:
+                allow ops.remediate
+                deny paging.send
+
+            # This policy genuinely blocks paging from this branch too,
+            # not just remediation -- uncomment to see SensePolicyError,
+            # not merely a comment claiming it would happen:
+            # ops.page_oncall("someone", "test")
+
+            # Declared *inside* this branch on purpose, not at the top of
+            # the file: a plain fn closes over the scope it was declared
+            # in, not wherever it's later called from -- a top-level-
+            # declared function would run every capability check it makes
+            # (via ops.restart_service's own `requires ops.remediate`)
+            # against the *global* (default-allow) policy, silently
+            # ignoring the deny/allow set right above. Nesting it here is
+            # what makes the policy real, not just documentation.
+            def attempt_remediation(target: String) -> String:
+                fix = ops.restart_service(target)
+                fix.verify()
+                fix.commit()
+                after = ops.check_service_health(target)
+                if after == "healthy":
+                    return target + ": remediated automatically"
+                # Under --dry-run, commit()'s body never ran, so
+                # service_status was never actually updated -- this branch
+                # (and therefore a rollback) fires for *every* incident in
+                # a dry run, honestly, not as a bug: nothing really
+                # happened, so a real post-fix failure and "not yet
+                # applied" look identical from here, same limitation
+                # terraform plan/kubectl --dry-run have.
+                fix.rollback()
+                return target + ": restart didn't clear it, rolled back -- needs a human"
+
+            outcome = attempt_remediation(service)
+            print("  " + outcome)
+            incident_ledger.remember(service, outcome)
+        else:
+            policy:
+                deny ops.remediate
+                allow paging.send
+
+            # Human-in-the-loop: an agent that pauses on ask_human(),
+            # standing in for a real page/Slack message a human would
+            # eventually answer. resume() below carries a canned reply
+            # back in so this file stays runnable non-interactively --
+            # in production this resume() call comes from wherever the
+            # human's actual answer arrives.
+            agent incident_commander:
+                answer = ask_human("page " + incident["oncall"] + " for " + service + "? (yes/no)")
+
+            start(incident_commander)
+            print("  " + incident_commander.pause_reason)
+            resume(incident_commander, "yes")
+
+            if incident_commander.answer == "yes":
+                page = ops.page_oncall(incident["oncall"], severity + " severity " + issue + " on " + service)
+                # `requires ... approval` means capability alone isn't
+                # enough -- .commit() independently checks both, and
+                # .approve() is the explicit, separate step that satisfies
+                # the second one.
+                page.approve()
+                page.verify()
+                page.commit()
+                incident_ledger.remember(service, "escalated to " + incident["oncall"])
+            else:
+                print("  escalation declined -- no page sent")
+                incident_ledger.remember(service, "escalation declined")
+
+print("")
+print("=== durable history for payments-api (the one that needed a rollback) ===")
+for line in incident_ledger.history("payments-api"):
+    print(line)
+
+print("")
+print("=== full audit trail ===")
+for line in audit_log():
+    print(line)

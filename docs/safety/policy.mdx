@@ -1,0 +1,104 @@
+---
+title: Policy
+description: "Capability-gating actions with 'requires' and 'policy: allow/deny' — scoped exactly like delegation."
+---
+
+## `requires` on an action
+
+```sns
+irreversible action delete_account(user: String) requires account.delete:
+    print("deleting " + user)
+```
+
+`requires <capability.path>` names the capability needed to run the
+action — a dotted identifier path (`account.delete`), not a string. It's
+checked independently by both `.verify()` and `.commit()` — see
+[Actions](/safety/actions#verify-and-commit-each-independently-check-policy).
+
+## `policy: allow` / `policy: deny`
+
+```sns
+policy:
+    allow web.search
+    deny account.delete
+```
+
+or, for a single rule, inline:
+
+```sns
+policy: allow email.send
+```
+
+## Default is allow
+
+<Warning>
+A capability nobody's policy ever mentions is usable. `policy` is **opt-in
+gating** per action, not automatic sandboxing of everything.
+</Warning>
+
+This is a deliberate choice, not an oversight. It keeps ordinary scripts —
+and any action with no `requires` clause at all — completely unaffected;
+only an action that explicitly names a capability can ever be denied, and
+only once some policy in scope actually says so. A stricter default-deny
+mode — an agent gets nothing unless explicitly granted, preventing it
+from becoming an unrestricted process — is real future work, tracked on
+the [Roadmap](/roadmap) — not the default today.
+
+## Scoping matches delegation exactly
+
+```sns
+irreversible action pay(amount: Int) requires payment.execute:
+    print("paying " + str(amount))
+
+policy:
+    deny payment.execute
+
+session checkout:
+    policy:
+        allow payment.execute
+    p = pay(100)
+    p.verify()
+    p.commit()                 # succeeds -- allowed inside this session
+
+p2 = pay(50)
+p2.verify()                    # fails -- outer scope still denies it
+```
+
+Policy rules live on `Environment`, resolved by walking the parent chain —
+the identical mechanism [delegation](/ai-native/sessions) uses. A `policy:`
+block inside a `session` or `agent` can grant or revoke a capability
+without affecting the surrounding scope, and the change is invisible once
+you're back outside it. There's nothing session/agent-specific about the
+implementation; it's the same "each scope has its own optional override"
+rule variables themselves follow.
+
+## What this doesn't cover yet
+
+<AccordionGroup>
+  <Accordion title="Capability dimensions beyond a name">
+    A fuller capability model is possible — cost, risk, side effects,
+    authentication, scope, rate limits. Today a capability is just a
+    dotted path with an allow/deny bit.
+  </Accordion>
+  <Accordion title="Enforcement on what an action's body goes on to call">
+    `requires` only gates *entering* the action itself — a bare function
+    call inside the body has no capability check of its own. Wrap that
+    call in a [`tool`](/ai-native/tool) instead and it gets checked too;
+    see [Tool: closing the gap](/ai-native/tool#closing-the-what-an-actions-body-calls-gap).
+  </Accordion>
+  <Accordion title="Static/compile-time checking">
+    All checks happen at `.verify()`/`.commit()` runtime, consistent with the
+    rest of Sense's shallow, runtime-only type/annotation checking so far.
+  </Accordion>
+</AccordionGroup>
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Actions" icon="shield-check" href="/safety/actions">
+    The full prepare → verify → commit model this gates.
+  </Card>
+  <Card title="Roadmap" icon="map" href="/roadmap">
+    Everything above, tracked with reasons, not just a checklist.
+  </Card>
+</CardGroup>

@@ -1,0 +1,301 @@
+---
+title: Actions
+description: "The prepare → verify → commit law: Sense's central rule, enforced by the interpreter, not by convention."
+---
+
+## The rule
+
+<Note>
+Preparing an action must not cause its external effect. External effects
+occur only through explicit commitment.
+</Note>
+
+This may be the single most important rule in Sense's design — the thing
+that most separates it from "Python with an agent keyword." A plain
+function call and a world-changing operation look identical in most
+languages: both are just `foo(x)`. Sense makes them structurally different.
+
+```sns
+irreversible action send_mail(to: String, body: String) requires email.send:
+    print("sending to " + to)
+
+policy:
+    allow email.send
+
+mail = send_mail("alice@example.com", "hi")   # prepare -- nothing happens yet
+print(mail.state)                              # "prepared"
+
+mail.verify()                                   # checks the required capability
+print(mail.state)                              # "verified"
+
+mail.commit()                                   # ONLY NOW does the body run
+print(mail.state)                              # "committed"
+```
+
+## Declaring an action
+
+```sns
+reversible action update_profile(user: String, field: String):
+    ...
+
+irreversible action delete_account(user: String) requires account.delete:
+    ...
+```
+
+`reversible`/`irreversible` replaces `fn` for anything that changes the
+outside world — marking the distinction at the declaration site itself,
+not bolted on afterward. The distinction is enforced,
+not just recorded on `.kind`: a `reversible action` must declare a
+`rollback` block (an `irreversible` one is rejected if it tries to), and
+only a reversible action can ever be rolled back —
+see [Rollback](#rollback-undoing-a-committed-action) below.
+
+## Calling an action never runs its body
+
+This is the part that's actually enforced, not just documented. Calling
+`send_mail(...)` returns a `SenseAction` — bound arguments plus a `state` —
+and nothing about that call touches the function body at all:
+
+```sns
+irreversible action f(x: Int):
+    print("side effect")
+a = f(1)
+print("no side effect yet")
+```
+
+```txt
+no side effect yet
+```
+
+Only `.commit()` executes the body.
+
+## Lifecycle
+
+```txt
+prepared -> verified -> committed
+                         (or denied, if the capability check fails)
+verified -> committed -> (or failed, if the body raises during commit)
+```
+
+Every step — `.verify()`, `.approve()`, `.commit()`, `.rollback()` — is a
+method on the action itself, one consistent calling convention. Skipping
+a step is an error, by design:
+
+```sns
+a.commit()            # error if `a` hasn't been .verify()'d yet
+a.verify(); a.verify() # error the second time -- already verified
+a.commit(); a.commit() # error the second time -- an action runs at most once
+```
+
+## `.verify()` and `.commit()` each independently check policy
+
+```sns
+irreversible action f() requires x.y:
+    print("ran")
+
+policy:
+    allow x.y
+a = f()
+a.verify()          # OK -- x.y is currently allowed
+
+policy:
+    deny x.y
+a.commit()          # still fails -- re-checked right here, not trusted from .verify()
+```
+
+Verification is never a permanent guarantee — the classic
+time-of-check-vs-time-of-use problem. `.commit()` doesn't trust an earlier
+`.verify()`; it checks again, itself.
+
+## `requires approval`: mandating a human sign-off
+
+`requires` accepts a capability, the literal word `approval`, or both
+(comma-separated, in either order):
+
+```sns
+irreversible action delete_account(user: String) requires account.delete, approval:
+    print("deleting " + user)
+
+policy:
+    allow account.delete
+
+a = delete_account("bob")
+a.verify()
+a.commit()          # SenseApprovalError: requires approval before .commit()
+
+a.approve()
+a.commit()          # now succeeds
+```
+
+`requires approval` puts the requirement on the *declaration* — it can't
+be forgotten by calling code the way a hand-rolled
+`if ask_human("approve?") == "yes": a.commit()` check could be.
+`<action>.approve()` is a separate, explicit method, so the caller still
+decides *how* approval is obtained — commonly
+[`ask_human`](/ai-native/pause-resume) inside an agent, but it could just
+as well be a programmatic check or an external process:
+
+```sns
+agent reviewer:
+    answer = ask_human("approve deleting bob? (yes/no)")
+    if answer == "yes":
+        a.approve()
+
+start(reviewer)
+resume(reviewer, "yes")
+a.commit()
+```
+
+`.commit()` checks `requires approval` the same independent,
+immediately-before-the-effect way it already re-checks capability — not
+trusting anything decided earlier — raising `SenseApprovalError` if
+`.approve()` was never called. `.verify()` deliberately does **not** check
+approval, so the natural order is prepare → verify (capability's fine) →
+seek approval → commit, rather than forcing approval before verification.
+
+## Audit log
+
+Every prepare/verify/commit/deny/fail event on every action is recorded:
+
+```sns
+a = send_mail("alice@example.com", "hi")
+a.verify()
+a.commit()
+
+for line in audit_log():
+    print(line)
+```
+
+```txt
+[line 1] irreversible action 'send_mail' -> prepared
+[line 2] irreversible action 'send_mail' -> verified
+irreversible action 'send_mail' -> committed
+```
+
+`Interpreter.audit_log` (host-side — a Python list of `AuditEntry` records
+with `action_name`, `kind`, `event`, `detail`, `line`, `timestamp`,
+`lineage`) is always populated, whether or not a Sense program ever reads
+it. The `audit_log()` builtin gives Sense code a simplified read-only view
+— an `Array<String>` of human-readable lines, since there's no structured
+record/map value type yet to hand back the full entry. It's in-memory
+only, scoped to one `Interpreter` instance — nothing is written anywhere
+durable.
+
+`lineage` records which `agent`/`tool`/`action` call an event happened
+inside of, outermost-first (e.g. `["agent:researcher", "tool:outer"]`) —
+empty for a plain top-level call. `describe()` only appends a
+`(via ...)` suffix when it's non-empty, so top-level events read exactly
+as above; [`sense inspect`](/reference/cli)'s Audit log panel uses it to
+render nested calls as a call tree instead of a flat list.
+
+## Rollback: undoing a committed action
+
+A `reversible action` **must** formally define its own undo, by declaring
+a `rollback` block — a `reversible action` with no actual undo is a claim
+the declaration doesn't back up; `irreversible` is the honest spelling
+for "this can't be undone," so it's rejected at parse time rather than
+surfacing later as a runtime surprise. `<action>.rollback()` runs the
+block nested inside the exact scope `.commit()`'s body ran in — so it
+sees not just the original args, but any local variable the commit body
+itself computed (an inserted row's id, the value being overwritten):
+
+```sns
+reversible action update_profile(user: String, bio: String) requires profile.write:
+    old_bio = "no bio yet"    # a real lookup, in a real program
+    print("setting " + user + "'s bio to " + bio)
+rollback:
+    print("reverting " + user + "'s bio to " + old_bio)   # sees old_bio
+
+policy:
+    allow profile.write
+
+a = update_profile("alice", "new bio")
+a.verify()
+a.commit()
+a.rollback()     # runs the rollback block, moves state to "rolled_back"
+```
+
+<Info>
+The declaration (`rollback:`) and the method that runs it
+(`.rollback()`) share one name on purpose. `rollback` is still a plain
+identifier, not a reserved keyword — recognized only by name *and* a
+following `:` (never `(`) — there's no bare call left to preserve by
+staying one, but a smaller ambiguity remains regardless (a variable
+literally named `rollback` declared right after a reversible action's
+body), rare enough to keep accepting rather than reserve a word used in
+exactly one grammar position.
+</Info>
+
+<Warning>
+`rollback` is required on a `reversible action` and rejected at parse
+time on an `irreversible action` — it "cannot be reliably undone".
+`<action>.rollback()` requires `state == "committed"`.
+</Warning>
+
+`.rollback()` re-checks the action's capability, same as `.commit()`. A
+denied rollback leaves state at `"committed"` — nothing changed, so
+nothing should look changed. A rollback body that itself raises is
+surfaced as an ordinary error, state left at `"committed"` — there's no
+auto-retry for a partially-failed rollback.
+
+## Dry run: preview what would commit without letting it happen
+
+`--dry-run` uses the same prepare → verify → commit line this whole page
+is about: everything through `.verify()` is already just a check, and the
+real effect lives entirely inside `.commit()`'s (and `.rollback()`'s) body.
+Dry run intercepts exactly there — every capability/approval check still
+runs for real, only the body is skipped:
+
+```bash
+sense run --dry-run examples/action_rollback.sns
+```
+
+```txt
+DRY RUN — no actions will actually commit
+...
+--- dry run summary ---
+reversible action 'update_profile' -> committed (dry run — body not executed)
+```
+
+```sns
+mail = send_mail("alice@example.com", "hi")
+mail.verify()          # a denied capability still raises here, exactly as normal
+mail.commit()          # the body's print(...) never runs in dry-run mode
+print(mail.state)      # "committed" -- not a separate dry-run state
+print(mail.commit())   # nil -- the body never ran, so there's no real value to return
+```
+
+<Warning>
+`.commit()`/`.rollback()` return `nil` in dry-run mode. Code that branches
+on a commit's return value will behave differently in a dry run than a
+real run — the same unavoidable limitation `terraform plan`/`kubectl
+--dry-run` have, not something specific to Sense.
+</Warning>
+
+Scoped to `action` only — a `tool` call always runs for real, dry-run or
+not. [`Tool`](/ai-native/tool) has no prepare/verify/commit staging to
+intercept, and the language's own guidance is that anything world-changing
+belongs in an `action`, not a `tool` — dry run reuses a boundary the
+language already enforces rather than adding a second one.
+[`sense inspect --dry-run`](/reference/cli) applies the identical flag to
+the live console, with an always-visible "DRY RUN" badge so a click on
+Commit is never ambiguous about whether it's real.
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Policy" icon="shield-check" href="/safety/policy">
+    `requires` and `policy: allow/deny` — capability-gating an action.
+  </Card>
+  <Card title="Tool" icon="wrench" href="/ai-native/tool">
+    A capability-checked function with no prepare/verify/commit lifecycle —
+    and the way to close the gap on what an action's body itself calls.
+  </Card>
+  <Card title="Pause & Resume" icon="pause" href="/ai-native/pause-resume">
+    `ask_human`, the usual way `.approve()` gets called.
+  </Card>
+  <Card title="Roadmap" icon="map" href="/roadmap">
+    What's still missing from the full Action model: capability cost/risk
+    dimensions, resource budgets, durable audit logging.
+  </Card>
+</CardGroup>

@@ -1,0 +1,136 @@
+---
+title: "Tutorial: Ask a Model"
+description: Model, ask, Answer, and delegation, hands-on — five minutes, no API key.
+---
+
+You'll build a small program that asks a model a question, reads the
+answer safely, switches which model is asked, and scopes that choice to
+one block of code. Every model here is `inference("mock", ...)` — an
+offline stand-in, not a default `ask()` falls back to — so none of it
+needs an API key.
+
+## 1. Ask something
+
+A `Model` is a value, and `model NAME = inference("mock", name?,
+response_template:)` names one — `model` is required here, not optional;
+a plain `weather_bot = inference(...)` is a syntax error. This one needs
+no network and no API key — good for learning, and for tests.
+`set delegation = <model>` picks which model `ask(...)` talks to.
+
+```sns
+model weather_bot = inference("mock", "weather_bot", response_template: "probably sunny: {prompt}")
+set delegation = weather_bot
+
+result = ask("will it rain tomorrow?")
+print(result.value)
+```
+
+Run it:
+
+```bash
+sense run step1.sns
+```
+```txt
+probably sunny: will it rain tomorrow?
+```
+
+`{prompt}` in the template is replaced with whatever you pass to `ask(...)`.
+
+## 2. Read the answer safely
+
+`ask(...)` never returns a plain string — it returns an `Answer`, with
+`.value`, `.confidence`, and `.source`. You must write `.value` to get the
+text out; there's no implicit unwrapping, on purpose. That's the whole
+point: a model's output stays visibly different from a fact your code
+computed itself.
+
+```sns
+model weather_bot = inference("mock", "weather_bot", response_template: "probably sunny: {prompt}")
+set delegation = weather_bot
+
+result = ask("will it rain tomorrow?")
+print(result.value)
+print(result.confidence)
+print(result.source)
+print(type_of(result))
+```
+```txt
+probably sunny: will it rain tomorrow?
+0.5
+weather_bot
+Answer
+```
+
+`inference("mock", ...)` always reports `0.5` confidence, since it's a
+deterministic stand-in, not a real judgment. A real provider (see
+[Model, Ask & Answer](/ai-native/model-ask-answer#real-providers-inference-provider-model-id))
+reports `nil` instead of faking a number.
+
+## 3. Switch which model answers
+
+`set delegation` can be reassigned as many times as you like. `ask(...)`
+always uses whichever model is currently delegated to:
+
+```sns
+model optimist = inference("mock", "optimist", response_template: "yes, definitely: {prompt}")
+model pessimist = inference("mock", "pessimist", response_template: "probably not: {prompt}")
+
+set delegation = optimist
+print(ask("will it rain tomorrow?").value)
+
+set delegation = pessimist
+print(ask("will it rain tomorrow?").value)
+```
+```txt
+yes, definitely: will it rain tomorrow?
+probably not: will it rain tomorrow?
+```
+
+## 4. Scope a model choice to one block
+
+`session` is a scope, not a separate actor — `set delegation` inside one
+only affects that block. Once the block ends, delegation reverts to
+whatever it was outside:
+
+```sns
+model outer_model = inference("mock", "outer", response_template: "outer says: {prompt}")
+set delegation = outer_model
+
+session second_opinion:
+    model inner_model = inference("mock", "inner", response_template: "inner says: {prompt}")
+    set delegation = inner_model
+    print(ask("well?").value)
+
+print(ask("well?").value)
+```
+```txt
+inner says: well?
+outer says: well?
+```
+
+The second `print` is back to `outer_model` — the `session`'s own
+delegation never leaked out.
+
+## What you built
+
+- `model NAME = inference("mock", ...)` — an offline `Model`, for learning and tests (`model` is required)
+- `set delegation = <model>` — pick which model `ask(...)` uses
+- `ask(prompt)` → `Answer` — `.value`/`.confidence`/`.source`, no implicit unwrapping
+- `session` — a scope for trying a different model without affecting the rest of the program
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Safe Actions" icon="shield-check" href="/tutorials/safe-actions">
+    Next tutorial — permissions and side effects that can't happen by accident.
+  </Card>
+  <Card title="Model, Ask & Answer" icon="book-open" href="/ai-native/model-ask-answer">
+    The full reference — real providers, labeled arguments, capability gating.
+  </Card>
+  <Card title="Let a model choose a tool" icon="hand-pointer" href="/ai-native/tool-calling">
+    The next step past a plain `ask()` call — needs a real model.
+  </Card>
+  <Card title="Which keyword do I want?" icon="list-check" href="/reference/keywords#which-keyword-do-i-want">
+    `def` vs `tool` vs `action` vs `agent`, decided in one glance.
+  </Card>
+</CardGroup>

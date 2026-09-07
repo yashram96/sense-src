@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sense-lang"
+version = "0.20.0"
+description = "Sense — a programming language for probabilistic and autonomous computation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://sensecode.dev"
+Documentation = "https://docs.sensecode.dev"
+
+[project.scripts]
+sense = "sense_lang.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+anthropic = ["anthropic>=0.30"]
+openai = ["openai>=1.0"]
+mcp = ["mcp>=1.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

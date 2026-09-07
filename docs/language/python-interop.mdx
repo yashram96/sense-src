@@ -1,0 +1,146 @@
+---
+title: Python Interop
+description: "import python: calling straight into any installed Python package — tractable because Sense's own interpreter is itself written in Python."
+---
+
+## Reach into any installed Python package
+
+Sense's own interpreter is written in Python and runs in the same
+process, so `import python "module"` is just `importlib.import_module`
+plus `getattr` — no FFI, no serialization boundary.
+
+```sns
+import python "math" as math
+
+print(math.sqrt(16))   # 4.0
+print(math.pi)
+```
+
+The alias defaults to the last dotted segment — `import python "os.path"`
+binds `path`. A module that doesn't exist raises `SenseImportError`; a
+missing attribute or an exception raised during a call both raise
+`SenseRuntimeError` — a Sense program never sees a raw Python traceback
+from a foreign call, the same guarantee as everywhere else in the language.
+
+## Most Sense values already *are* Python values
+
+Sense's value model was never really "mapped onto" Python's — for the
+primitives, it just **is** Python's: `Int` is `int`, `String` is `str`,
+`Array` is `list`. So a Python function returning a list of numbers comes
+back as an ordinary Sense `Array`, usable with `push`/`len`/indexing
+immediately — there's no conversion step to think about:
+
+```sns
+import python "json" as json
+
+data = json.loads("[1, 2, 3]")
+push(data, 4)
+print(data)              # [1, 2, 3, 4]
+print(json.dumps(data))  # back into Python, no wrapping needed either
+```
+
+`None` / `bool` / `int` / `float` / `str` / `list` cross the boundary for
+free, both directions.
+
+## Everything else: an opaque, still-usable wrapper
+
+A `dict`, a class instance, a module — anything Sense has no native
+representation for — comes back as a `PythonValue` wrapper. It isn't "a
+Sense value" the way an `Int` is, but member access and indexing both
+delegate straight through to the wrapped object, so it's still directly
+usable:
+
+```sns
+person = json.loads("{\"name\": \"ada\", \"age\": 36}")
+print(person["name"])   # "ada" -- indexing delegates to Python's __getitem__
+person["age"] = 37       # and assignment
+```
+
+```sns
+import python "datetime" as datetime
+
+d = datetime.date(2020, 1, 15)
+print(d.year)         # member access on a wrapped object
+print(d.isoformat())  # calling a method on it
+```
+
+`print()` on a `PythonValue` shows the wrapped object's own `str()`, not a
+placeholder — printing a `pandas.DataFrame` prints the table Pandas itself
+would print. Errors raised through a wrapped object (indexing, attribute
+access, calling) carry the underlying exception's type name, since some
+exceptions' messages are meaningless without it — a missing dict key raises
+`python error indexing: KeyError: 1`, not a bare `1`.
+
+## The safety model: extended, not bypassed
+
+<Warning>
+A bare `import python` plus a direct call is **exactly as unrestricted as
+a plain Sense `fn`** — nothing new here, and nothing weaker than what
+already existed. A Sense function's body has never had a capability check
+of its own; Python interop doesn't open a new hole, it just means that
+already-documented boundary now also covers foreign calls.
+</Warning>
+
+The real safety story is unchanged from [Actions](/safety/actions): wrap
+the call in a Sense `action`, and it gets the full
+prepare → verify → commit treatment no matter what the body's
+implementation happens to be:
+
+```sns
+import python "math" as math
+
+irreversible action compute_root(x: Int) requires math.compute:
+    return math.sqrt(x)   # only runs at .commit() time
+
+policy:
+    allow math.compute
+
+result = compute_root(25)
+result.verify()
+print(result.commit())   # 5.0
+```
+
+`compute_root(25)` only *prepares* — `math.sqrt` doesn't execute until
+`.commit()`, and `policy: deny math.compute` blocks it exactly like
+denying any native-Sense action's capability. What the body is written
+in never changes that.
+
+## What this doesn't do (yet)
+
+<AccordionGroup>
+  <Accordion title="Automatic classification of foreign functions">
+    The original design notes sketch `foreign python "requests.post" as
+    irreversible action` — a declaration that classifies a function's
+    safety properties at the import site itself. Today that's something
+    you do by hand, by wrapping the call in your own `action` — `import
+    python` itself makes no safety claim about what it imports.
+  </Accordion>
+  <Accordion title="Sandboxing or conformance testing">
+    An imported Python function is trusted as-is. There's no tracing to
+    verify a function actually behaves the way its (manual) classification
+    claims.
+  </Accordion>
+  <Accordion title="Interop with anything other than Python">
+    No `import rust "..."` / `import service "..."`. This works because
+    Sense's own interpreter happens to already be Python — a genuinely
+    different host language would need a real FFI.
+  </Accordion>
+  <Accordion title="Importing a specific name">
+    Only whole-module imports — no `from math import sqrt`-equivalent yet.
+  </Accordion>
+  <Accordion title="Pre-built integration packages">
+    No `sense-pandas`/`sense-numpy`-style vetted wrappers. `import python`
+    is the raw primitive those would be built on top of.
+  </Accordion>
+</AccordionGroup>
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Actions" icon="shield-check" href="/safety/actions">
+    The prepare → verify → commit model a wrapped Python call inherits.
+  </Card>
+  <Card title="Roadmap" icon="map" href="/roadmap">
+    What's built vs. still ahead for Python interop specifically.
+  </Card>
+</CardGroup>

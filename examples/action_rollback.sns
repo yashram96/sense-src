@@ -1,0 +1,25 @@
+# `rollback:` / `action.rollback()` -- reversible-action compensation.
+# A `reversible action` must declare `rollback:`; an `irreversible action`
+# may not, since it "cannot be reliably undone."
+
+reversible action update_profile(user: String, bio: String) requires profile.write:
+    print("SETTING " + user + "'s bio to: " + bio)
+rollback:
+    print("REVERTING " + user + "'s bio")
+
+policy: allow profile.write
+
+a = update_profile("alice", "new bio")
+a.verify()
+a.commit()
+print("state after commit: " + a.state)
+
+a.rollback()
+print("state after rollback: " + a.state)
+
+# .rollback() re-checks the capability at rollback time -- same "never trust
+# stale verification" principle .commit() already applies. A denial here
+# leaves the action's state at "committed": nothing changed, so nothing
+# should look changed.
+policy: deny profile.write
+# a.rollback()  # would raise SensePolicyError -- already rolled back anyway

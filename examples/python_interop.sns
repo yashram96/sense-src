@@ -1,0 +1,39 @@
+# `import python "module"` reaches straight into any installed Python
+# package. Tractable because Sense's own interpreter already runs inside
+# the same Python process -- no FFI, no serialization, just importlib +
+# getattr underneath.
+
+import python "math" as math
+
+print(math.sqrt(16))
+print(math.pi)
+
+# Most Sense values already ARE Python values, so they cross the boundary
+# for free -- a Python list that comes back is just a Sense Array, usable
+# with the native array builtins immediately:
+import python "json" as json
+
+data = json.loads("[1, 2, 3]")
+push(data, 4)
+print(data)
+print(json.dumps(data))
+
+# A dict has no native Sense type, so it comes back as an opaque wrapper --
+# still usable via indexing and member access, just not fully "a Sense
+# value":
+person = json.loads("{\"name\": \"ada\", \"age\": 36}")
+print(person["name"])
+person["age"] = 37
+print(person["age"])
+
+# The safety model still applies -- but only to what you wrap in an
+# action. A bare import + call is exactly as unrestricted as a plain
+# Sense fn (that's an existing boundary, not a new hole):
+irreversible action compute_root(x: Int) requires math.compute:
+    return math.sqrt(x)
+
+policy: allow math.compute
+
+result = compute_root(25)
+result.verify()
+print(result.commit())

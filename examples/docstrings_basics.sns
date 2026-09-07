@@ -1,0 +1,61 @@
+# Docstrings: a bare string as the *first* statement of a tool/action/
+# agent/plain function's body is captured as that declaration's `.doc` --
+# Python's own docstring convention, made to actually mean something
+# instead of being an inert expression statement whose value is computed
+# and thrown away. No new keyword: the string was already legal to write
+# there.
+#
+# A plain "..." pair already tolerates an embedded literal newline -- no
+# triple-quote needed just to span multiple lines. """...""" works too,
+# specifically because it used to lex as three separate strings jammed
+# together with nothing joining them (a confusing parse error, not a
+# real multi-line literal) before this.
+
+def square(x: Int) -> Int:
+    "returns the square of x"
+    return x * x
+
+tool greet(name: String) returns String:
+    """
+    Greets a user by name.
+    Returns the greeting string, not a raw print -- the caller decides
+    what to do with it.
+    """
+    return "hi " + name
+
+reversible action rename_file(old_path: String, new_path: String) requires fs.rename:
+    """
+    Renames a file on disk. Reversible: rollback renames it back.
+    """
+    print("renaming " + old_path + " -> " + new_path)
+rollback:
+    print("reverting: renaming " + new_path + " -> " + old_path)
+
+agent researcher:
+    "Investigates a topic and records what it finds as a plain variable."
+    finding = "sense uses indentation, not braces"
+
+policy: allow fs.rename
+
+print(square(6))
+print(greet("ada"))
+
+fix = rename_file("draft.txt", "final.txt")
+fix.verify()
+fix.commit()
+fix.rollback()
+
+start(researcher)
+
+# `.doc` is readable on a declared entity via sense inspect's panels for
+# tool/action/agent alike; on an *agent specifically* it's also readable
+# straight from Sense code, the same way `.status`/`.pause_reason` are:
+print(researcher.doc)
+print(researcher.finding)
+
+# A tool's docstring is independent of its separate, required-for-
+# ask_with_tools inline description string -- see
+# examples/ask_with_tools_basics.sns for that one. Nothing here
+# demonstrates the connection directly since sense inspect (not Sense
+# code) is where a tool's own .doc is actually readable today:
+# sense inspect examples/docstrings_basics.sns

@@ -1,0 +1,55 @@
+---
+title: Sessions
+description: A scope, not an actor. Try a different model or policy for one block without a global switch.
+---
+
+## What a session is
+
+```sns
+model outer_model = inference("mock", "outer", response_template: "outer: {prompt}")
+set delegation = outer_model
+
+session researcher:
+    model inner_model = inference("mock", "inner", response_template: "inner: {prompt}")
+    set delegation = inner_model
+    print(ask("best database?").value)   # "inner: best database?"
+
+print(ask("still outer?").value)          # "outer: still outer?"
+```
+
+A `session` is **not** an autonomous actor — it's a scope, executed
+immediately, the same instant a plain `if` block would be. An
+[`agent`](/ai-native/agents) *pursues* something and has its own
+lifecycle; a `session` just *bounds* execution.
+
+It gets its own child scope (a variable assigned inside is invisible
+outside — see [Variables & Scope](/language/variables-and-scope)) and its
+own delegation/policy: `set delegation` inside only affects that session,
+and reverts the moment it ends.
+
+## How the scoping works
+
+Delegation and policy both live on the current scope, resolved by walking
+up the parent chain — the same lookup a variable read uses:
+
+- looking up the model with nothing set yet walks up and finds the outer
+  one (**inherit by default**)
+- `set delegation` inside writes to the session's *own* slot, never the
+  parent's (**no leaking out**)
+
+This also means a plain function call gets its own delegation/policy
+scope for free — `set delegation` inside a function body never leaks to
+its caller either. See
+[Scoping & Delegation](/architecture/scoping-and-delegation) for the
+mechanism.
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Agents" icon="robot" href="/ai-native/agents">
+    The autonomous-actor counterpart to `session`.
+  </Card>
+  <Card title="Policy" icon="shield-check" href="/safety/policy">
+    `policy: allow/deny` uses this exact same scoping mechanism.
+  </Card>
+</CardGroup>

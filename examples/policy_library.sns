@@ -1,0 +1,15 @@
+# A shared capability library -- written once, imported by many callers,
+# as if it shipped as a real package. It declares what's *possible*
+# (these tools/actions, and exactly which capability each one requires)
+# but deliberately no `policy` of its own. Whether any of this is
+# actually *allowed* is a decision this file has no say in at all --
+# that's entirely up to whoever imports it.
+
+tool refund_customer(order_id: String, amount: Int) returns String requires payment.refund "refund a customer for a specific order":
+    return "refunded $" + str(amount) + " for order " + order_id
+
+tool send_receipt(email: String, order_id: String) returns String requires email.send "email a receipt for an order":
+    return "receipt sent to " + email + " for order " + order_id
+
+irreversible action delete_customer_data(customer_id: String) requires data.delete:
+    print("PERMANENTLY deleting all data for " + customer_id)

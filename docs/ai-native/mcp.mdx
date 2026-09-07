@@ -1,0 +1,122 @@
+---
+title: MCP
+description: connect_mcp(...) — hand a real model tools from an external process, discovered over the Model Context Protocol.
+---
+
+## The shape of it
+
+```sns
+fs = connect_mcp("filesystem", "npx", ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"], "mcp.filesystem")
+
+policy:
+    allow mcp.filesystem
+
+result = ask_with_tools("what files are in /tmp?", fs.tools)
+print(result.value)
+
+fs.close()
+```
+
+`connect_mcp(name, command, args, capability?)` spawns an MCP server as a
+subprocess over stdio, discovers its tools once at connection time, and
+returns an `McpServer` value (`.name`, `.tools`, `.close()`). Each tool in
+`.tools` reports as `"Tool"` from `type_of()` and can be handed to
+[`ask_with_tools`](/ai-native/tool-calling) exactly like a Sense
+`tool` — that's the only way to invoke one; there's no direct call syntax.
+
+Requires the optional `mcp` package (`pip install sense-lang[mcp]`,
+imported lazily — importing `sense_lang` itself never requires it).
+
+## When to use this
+
+Reach for `connect_mcp` when the capability you want to expose to a model
+already exists as an [MCP server](https://modelcontextprotocol.io) —
+someone else's filesystem tool, database tool, or API wrapper — rather
+than reimplementing it as a Sense `tool`. Use a plain `tool` instead when
+the logic is simple enough to write directly in Sense, or when you need
+Sense-level type checking on the parameters.
+
+## An MCP tool has no Sense body — invoking it is a real RPC call
+
+This is the one place in Sense's interop story that needed genuinely new
+runtime infrastructure rather than composition of what already existed:
+an MCP tool's implementation lives in another process, so calling one
+means a JSON-RPC request over the official `mcp` SDK, not running a
+`ToolDecl`'s body.
+
+<Steps>
+  <Step title="No direct call syntax">
+    An `McpTool` never gets a Sense identifier the way `tool search(...)`
+    does. MCP tools exist for a model to discover and choose from via
+    `ask_with_tools` (or a [`skill`](/ai-native/skills) bundling them),
+    not for a human to call by name in source.
+  </Step>
+  <Step title="One capability covers the whole connection">
+    Not per tool — splitting that finely would mean guessing at an
+    external server's tool semantics from its name/description. Two
+    servers needing different capabilities means two `connect_mcp(...)`
+    calls. Tool names are namespaced `server.tool` so two servers (or a
+    server and a bare Sense tool) can't collide on a generic name.
+  </Step>
+  <Step title="close() is explicit">
+    Unlike agent threads or SQLite connections elsewhere in Sense (no
+    explicit cleanup needed, reclaimed at process exit), an MCP connection
+    spawns a real OS subprocess — a more visible failure mode left
+    uncleaned than an idle thread, so it gets its own cleanup call.
+  </Step>
+</Steps>
+
+Invoking an MCP tool runs through a path parallel to (not through) the
+one a Sense `tool` call uses — same shape (capability check, audit entry,
+denial fed back to the model rather than raised).
+
+## Why a background thread, not a callback
+
+<Warning>
+An MCP session has to be reused across many calls, which rules out
+`asyncio.run()` per call — it would respawn the subprocess every time.
+The natural async-native alternative — open the connection via a callback
+(`async with ... as tools: ...`) — isn't available either, since **Sense
+has no anonymous function/closure syntax** to pass one. A background
+thread running its own persistent asyncio event loop, bridged via
+`asyncio.run_coroutine_threadsafe(...).result(...)`, is the option
+actually available given those two constraints.
+</Warning>
+
+One detail worth knowing if you're debugging a connection issue: the
+connection's *entire* lifetime — connect, every tool call, and shutdown —
+runs as a single long-lived task on that background thread's event loop,
+rather than one task per operation. `mcp`'s own context managers use
+`anyio` cancel scopes internally, which require entering and exiting in
+the same asyncio task; splitting connect and shutdown into separate tasks
+raises a cancel-scope error from `anyio` itself.
+
+## What this doesn't do (yet)
+
+<AccordionGroup>
+  <Accordion title="HTTP/SSE transport">
+    `connect_mcp` is stdio-only.
+  </Accordion>
+  <Accordion title="Resources and prompts">
+    Only MCP tool discovery/invocation is wired up — not MCP resources or
+    prompt templates.
+  </Accordion>
+  <Accordion title="Reconnection">
+    A dead connection surfaces a clear error on the next call rather than
+    auto-reconnecting. One background thread per connection, not pooled.
+  </Accordion>
+</AccordionGroup>
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Tool-Calling" icon="hand-pointer" href="/ai-native/tool-calling">
+    The mechanism an MCP server's tools are exposed through.
+  </Card>
+  <Card title="Skills" icon="layer-group" href="/ai-native/skills">
+    Bundling MCP tools alongside Sense tools under one description.
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    The `[mcp]` optional extra `connect_mcp` needs.
+  </Card>
+</CardGroup>

@@ -1,0 +1,50 @@
+# Inter-agent communication: `send(agent, message)` / `receive(timeout?)`.
+#
+# Each agent gets its own mailbox (a thread-safe FIFO queue) the moment it's
+# declared. `send` never blocks; `receive` blocks the *calling* agent's own
+# thread until a message arrives (or the optional timeout elapses, returning
+# nil). This is the safe way for two `async agent`s to hand data to each
+# other -- sharing a plain variable between them would race, since nothing
+# stops both from reading/writing it at the same wall-clock moment.
+#
+# The scenario: a coordinator fans two research tasks out to two workers
+# running concurrently, then collects both results as they finish -- not
+# necessarily in the order they were sent, since the workers race each
+# other, but the mailbox delivers whichever arrives first without losing or
+# corrupting either.
+
+# import python "asyncio" as asyncio
+
+async agent worker_a:
+    task = receive()
+    print("worker_a: researching '" + task + "'")
+    send(coordinator, "worker_a found: population data for " + task)
+
+async agent worker_b:
+    task = receive()
+    print("worker_b: researching '" + task + "'")
+    send(coordinator, "worker_b found: climate data for " + task)
+
+async agent coordinator:
+    send(worker_a, "Iceland")
+    send(worker_b, "Iceland")
+
+    # Two results are coming, from two independent workers -- order isn't
+    # guaranteed, so receive() twice and print whatever arrives, whenever.
+    first = receive()
+    second = receive()
+    print("coordinator: " + first)
+    print("coordinator: " + second)
+    # await asyncio.sleep(2)
+    print("coordinator: both workers reported in")
+
+start(worker_a)
+start(worker_b)
+start(coordinator)
+
+# All three agents run on their own threads -- wait for the coordinator
+# (and, transitively via its own receive() calls, both workers) to finish
+# before the script exits.
+await(coordinator)
+await(worker_a)
+await(worker_b)

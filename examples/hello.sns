@@ -1,0 +1,2 @@
+# The smallest Sense program.
+print("hello, sense")

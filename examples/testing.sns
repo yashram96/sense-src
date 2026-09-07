@@ -1,0 +1,32 @@
+# Phase 5: a real testing framework. Run this with `sense test
+# examples/testing.sns` (not `sense run`) to see the pass/fail report --
+# though `sense run` executes it too, since a test file is just a normal
+# Sense program with some `test` blocks in it.
+
+def square(x) -> Int:
+    return x * x
+
+def fib(n):
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+test "square of a positive number":
+    assert(square(3) == 9)
+
+test "square of zero":
+    assert(square(0) == 0, "square(0) should be 0")
+
+test "fibonacci base cases":
+    assert(fib(0) == 0)
+    assert(fib(1) == 1)
+
+test "fibonacci recursive case":
+    assert(fib(6) == 8)
+
+# A `test` block's failure is isolated -- it's recorded, not raised, so it
+# does not stop the rest of the file or the rest of the suite from running.
+test "this one is deliberately wrong":
+    assert(square(2) == 5, "2 squared is 4, not 5 -- this failure is expected")
+
+print("the file itself finished running top to bottom")

@@ -1,0 +1,26 @@
+# Human-in-the-loop, built on pause()/resume(): ask_human(question) suspends
+# a running agent exactly like pause(), but the human's answer -- whatever
+# resume(agent, answer) provides -- becomes the call's return value.
+
+agent approver:
+    amount = 5000
+    answer = ask_human("approve charge of " + str(amount) + "? (yes/no)")
+    if answer == "yes":
+        print("charging " + str(amount))
+    else:
+        print("cancelled")
+
+start(approver)
+print(approver.status)  # "paused"
+print(approver.pause_reason)  # the question
+
+# ... elsewhere, e.g. a human reviews and answers ...
+
+resume(approver, "yes")
+print(approver.status)  # "completed"
+
+# Outside any agent, ask_human() has no one to hand control back to, so it
+# falls back to reading a real line from stdin instead of suspending:
+#
+# name = ask_human("what is your name?")
+# print("hello, " + name)

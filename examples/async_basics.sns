@@ -1,0 +1,35 @@
+# `async agent` / `async tool` -- concurrency is opt-in at this boundary,
+# not threaded through every plain function call. A plain `agent`/`tool`
+# (no `async`) behaves exactly as before: `start()`/calling a tool blocks
+# until it's done. `async` skips that blocking wait.
+
+import python "time" as time
+
+async agent fetch_a:
+    time.sleep(0.1)
+    result = "data from A"
+
+async agent fetch_b:
+    time.sleep(0.1)
+    result = "data from B"
+
+start(fetch_a)  # returns immediately -- fetch_a.status is "running"
+start(fetch_b)  # also returns immediately -- both bodies now run concurrently
+
+await(fetch_a)  # blocks until fetch_a settles
+await(fetch_b)  # blocks until fetch_b settles
+print(fetch_a.result)
+print(fetch_b.result)
+
+# An async tool call returns a Future immediately; await() blocks for the
+# result. Capability checks (if `requires` is declared) still happen
+# synchronously at the call site -- a denial doesn't need await() to surface.
+async tool slow_search(query: String) returns String:
+    time.sleep(0.05)
+    return "results for " + query
+
+f = slow_search("sense")
+print(type_of(f))  # "Future"
+print(f.done)  # probably false -- the body is still sleeping
+print(await(f))  # blocks until the sleep finishes, then returns the result
+print(f.done)  # true, now that it's been awaited

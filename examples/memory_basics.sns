@@ -1,0 +1,24 @@
+# `memory` -- a persistent-for-the-run key/value store, distinct from an
+# ordinary variable.
+#
+# `: "kind"` is a free-form, unvalidated hint (short-term/long-term/episodic/
+# semantic/working are *potential* categories, not a closed set) kept only
+# for introspection.
+
+memory notes: "working"
+
+notes.remember("topic", "sense keywords")
+notes.remember("status", "in progress")
+
+print(notes.recall("topic"))
+print(notes.recall("missing"))  # nil -- unlike a bare variable, no NameError
+
+print(notes.keys())
+
+notes.forget("status")
+print(notes.keys())
+
+print(notes.kind)
+
+# Backed by an in-process dict -- explicitly not persisted across runs.
+# Real retrieval/indexing/expiration stays future work.

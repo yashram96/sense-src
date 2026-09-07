@@ -1,0 +1,109 @@
+---
+title: Scoping & Delegation
+description: Why 'set delegation' and 'policy' live on Environment instead of the interpreter — and the bug that forced the redesign.
+---
+
+## The original design, and why it broke
+
+The first implementation of `set delegation` and `policy` used a single
+`Interpreter`-global stack: entering a `session` or starting an `agent`
+pushed a copy of the current rules, and exiting popped it. It worked, and
+it was simple — right up until [agent pause/resume](/ai-native/pause-resume)
+needed to exist.
+
+The problem: a stack models exactly one thing correctly — a single,
+uninterrupted sequence of nested scopes, entered and exited in strict
+order. Pause/resume breaks that assumption on purpose. When an agent
+pauses mid-body, its delegation/policy frame is still logically "open" —
+but control has been handed back to whatever called `start()`, which has
+its own, completely different notion of "current scope." With a shared
+global stack, "top of stack" stops reliably meaning "the right scope" the
+moment two independent logical contexts — a paused agent, and whatever
+resumed it — can each expect their *own* current scope at the same time.
+
+## The fix: attach state to `Environment`, not the interpreter
+
+```python
+class Environment:
+    __slots__ = ("vars", "parent", "model", "policy", "agent")
+
+    def get_current_model(self):
+        env = self
+        while env is not None:
+            if env.model is not None:
+                return env.model
+            env = env.parent
+        return None
+```
+
+Each `Environment` — the same object that already holds a scope's
+variables — gets three more optional slots: `model` (a `set delegation`
+override), `policy` (a dict of capability → allowed), and `agent` (set
+only on an agent's own scope, so `pause()` can find "which agent am I
+inside").
+
+Looking up "the current model" walks the parent chain exactly the way
+`Environment.get(name)` already does for variables — first non-`None`
+value wins, defaulting to `None` (no model configured) if nothing in the
+chain ever set one. `set delegation = x` mutates only the **current**
+env's own `model` slot — never a parent's — so it's automatically scoped to
+wherever it's written and automatically visible to anything nested inside,
+with zero explicit push/pop/copy bookkeeping anywhere.
+
+```python
+def _exec_SetStmt(self, stmt, env, file_path):
+    value = self._evaluate(stmt.value, env, file_path)
+    ...
+    env.set_current_model(value)   # mutates *this* env only
+
+def _exec_SessionStmt(self, stmt, env, file_path):
+    # a fresh child env is enough -- nothing to push/pop
+    self._exec_block_statements(stmt.body.statements, env.child(), file_path)
+```
+
+This is strictly more robust than the stack it replaced: state now lives
+wherever the *logical* scope is (an `Environment` object reachable from
+wherever execution currently is, on whichever thread), not in a single
+mutable structure shared across every context that happens to be
+interpreting Sense code at once.
+
+## A side effect worth knowing about
+
+Because every scope — including an ordinary function call's own
+environment — now gets its own optional override for free, a plain
+function's `set delegation` no longer leaks to its caller either. Under
+the old stack-based design, only `session` and `agent` bodies got their own
+frame; a function call didn't push one, so delegation set inside a
+function used to affect the caller too. That was a documented limitation.
+It disappeared as a consequence of fixing the pause/resume bug, without
+anyone writing function-call-specific scoping logic — every scope just
+follows the same one rule now.
+
+## Policy uses the identical mechanism
+
+```python
+def get_capability(self, capability: str) -> bool:
+    env = self
+    while env is not None:
+        if env.policy is not None and capability in env.policy:
+            return env.policy[capability]
+        env = env.parent
+    return True  # default allow -- see /safety/policy
+```
+
+Same walk-the-chain pattern, same reasoning, same fix for the same
+underlying class of bug. See [Policy](/safety/policy) for the
+capability-gating semantics this enables, and [Actions](/safety/actions)
+for how `.verify()`/`.commit()` each call this independently rather than
+caching a result.
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Agent concurrency model" icon="clock" href="/architecture/agent-concurrency">
+    The pause/resume mechanism this redesign was made to support.
+  </Card>
+  <Card title="Sessions" icon="layer-group" href="/ai-native/sessions">
+    The user-facing behavior this architecture produces.
+  </Card>
+</CardGroup>

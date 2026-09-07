@@ -1,0 +1,102 @@
+---
+title: Variables & Scope
+description: No 'let'. One assignment rule, plus 'local' as the explicit escape hatch for intentional shadowing.
+---
+
+## No declaration keyword
+
+A name is created the same way it's updated — there's no `let`:
+
+```sns
+x = 5              # untyped
+x: Int = 5         # typed — checked the same way function params are
+```
+
+## The one assignment rule
+
+<Note>
+`name = value` (typed or not) updates the **nearest existing** binding for
+`name` in the enclosing scope chain. If none exists anywhere, it creates
+one in the current (innermost) scope.
+</Note>
+
+```sns
+counter = 0
+i = 0
+while i < 3:
+    counter = counter + 1   # mutates the OUTER counter -- no special syntax needed
+    i = i + 1
+print(counter)   # 3
+```
+
+Python needs an explicit `global`/`nonlocal` before a nested scope can
+mutate an enclosing variable — miss it and you get `UnboundLocalError`.
+Sense has one rule, no exception to remember:
+
+<CodeGroup>
+
+```sns Sense
+counter = 0
+def add_one():
+    counter = counter + 1  # just works
+add_one()
+print(counter)  # 1
+```
+
+```python Python (for contrast)
+counter = 0
+def add_one():
+    counter = counter + 1  # UnboundLocalError!
+add_one()
+```
+
+</CodeGroup>
+
+## `local`: get a genuinely new variable
+
+Want a fresh binding even though an outer one of the same name exists?
+That's `local`:
+
+```sns
+x = 1
+if true:
+    local x = 2   # shadows the outer x; does not touch it
+    print(x)      # 2
+print(x)          # 1 -- outer x is untouched
+```
+
+`local` always creates in the current (innermost) scope. `local name:
+Type = expr` supports a type annotation, same as the untyped form.
+
+## Blocks are their own scope
+
+`if`/`while`/`for` bodies, function calls, `session` bodies, and `agent`
+bodies each get their own child scope. A variable first assigned inside
+one, with no matching name in any enclosing scope, stays local to it:
+
+```sns
+if true:
+    only_inside = 42
+print(only_inside)   # error: undefined variable 'only_inside'
+```
+
+## `set delegation` and `policy` use the same scope chain
+
+<Info>
+`set delegation = <model>` (see [Model, Ask & Answer](/ai-native/model-ask-answer))
+and `policy: allow/deny <capability>` (see [Policy](/safety/policy)) resolve
+through this exact mechanism — each scope has its own optional override,
+found by walking up the parent chain, same as a variable lookup. Nothing
+new to learn for those.
+</Info>
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Functions" icon="function" href="/language/functions">
+    Declaring, calling, closures, and typed parameters.
+  </Card>
+  <Card title="Control flow" icon="route" href="/language/control-flow">
+    `if`/`else`, `while`, `for`, `break`, `continue`.
+  </Card>
+</CardGroup>

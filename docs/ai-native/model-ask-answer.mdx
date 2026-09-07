@@ -1,0 +1,195 @@
+---
+title: Model, Ask & Answer
+description: Ask a model something, read the answer safely, switch providers with one line — no vendor lock-in at the language level.
+---
+
+## The shape of it
+
+```sns
+model reasoning = inference("mock", "demo", response_template: "I think: {prompt}")
+set delegation = reasoning
+
+result = ask("what database should we use?")
+
+print(result.value)         # "I think: what database should we use?"
+print(result.confidence)    # 0.5
+print(result.source)        # "reasoning" -- the declaration named it
+```
+
+<Steps>
+  <Step title="A Model is a value, but naming one needs `model`">
+    `inference(...)` returns a `Model` — and `model NAME = inference(...)`
+    is required to bind it to a name; a plain `reasoning = inference(...)`
+    is a `SenseSyntaxError`.
+  </Step>
+  <Step title="ask() asks whichever Model is delegated to">
+    Never a vendor directly. Swap the model, `ask()` doesn't change.
+    (Named `ask`, not `reason` — a real LLM "extended thinking" mode is a
+    different, specific capability; this is just "get an answer.")
+  </Step>
+  <Step title="The result is an Answer, never a plain value">
+    `.value`, `.confidence`, `.source` — nothing else. No implicit
+    unwrapping: you can't pass an `Answer<String>` where a plain `String`
+    is expected without writing `.value`.
+  </Step>
+</Steps>
+
+## Switch which model answers: `set delegation`
+
+```sns
+model a = inference("mock", "a", response_template: "from a: {prompt}")
+model b = inference("mock", "b", response_template: "from b: {prompt}")
+
+set delegation = a
+print(ask("q").value)   # "from a: q"
+
+set delegation = b
+print(ask("q").value)   # "from b: q"
+```
+
+`set delegation` is scoped like a variable — inside a
+[`session`](/ai-native/sessions) or [`agent`](/ai-native/agents), it
+reverts once that block ends.
+
+## Bypass delegation: `<model>.ask(prompt)`
+
+```sns
+model backup = inference("mock", "backup")
+result = backup.ask("plan B")   # always asks backup, ignores set delegation
+```
+
+## `answer<T>` as a type annotation
+
+```sns
+country: answer<String> = ask("is the sky blue?")
+print(country.value)
+```
+
+Lowercase, like every generic type annotation in Sense (`array<T>` isn't
+a thing, but the convention here matches `belief<T>` in the original
+design notes — the type itself is `Answer`, capitalized everywhere else).
+
+## Real providers: `inference(provider, model_id?, ...)`
+
+One function, every vendor — `provider` is the only thing that changes:
+
+```sns
+model claude = inference("anthropic")   # reads $ANTHROPIC_API_KEY, model "claude-sonnet-5"
+set delegation = claude
+result = ask("what database should we use?")
+print(result.value)
+print(result.confidence)   # nil -- a real model doesn't fake a confidence number
+```
+
+```sns
+model gpt = inference("openai")   # reads $OPENAI_API_KEY, model "gpt-4o"
+set delegation = gpt
+print(ask("what database should we use?").value)
+```
+
+Same `Model`/`ask()`/`Answer` surface as `inference("mock", ...)` —
+nothing above changes. What's actually different:
+
+<Steps>
+  <Step title="The API key is never a literal in Sense source">
+    Read from an environment variable only. Missing it raises immediately
+    at `inference(...)` call time, not on the first `ask()`.
+  </Step>
+  <Step title="Capability-gated">
+    A real call costs money and leaves the process — `AnthropicProvider`
+    declares `capability = "model.anthropic"`, `OpenAIProvider` declares
+    `"model.openai"`; `inference("mock", ...)` declares neither, so mock
+    calls are never gated. Default allow, so this only bites once you write
+    `policy: deny model.anthropic`:
+    ```sns
+    policy:
+        deny model.anthropic
+    set delegation = claude
+    ask("hi")   # SensePolicyError -- denied before any network call
+    ```
+    Also recorded in [`audit_log()`](/safety/actions#audit-log); a mock
+    call isn't.
+  </Step>
+  <Step title="No fabricated confidence">
+    `inference("mock", ...)` always reports `0.5`. A real provider reports
+    `nil` — `stringify()` renders that as `answer<?>(...)`, not a fake
+    number.
+  </Step>
+</Steps>
+
+<Info>
+`pip install sense-lang[anthropic]` / `[openai]` — both optional, both
+imported lazily, so plain `sense_lang` never requires either. Any
+provider exception is wrapped in `SenseRuntimeError`, never a raw Python
+traceback.
+</Info>
+
+## Name a model: `model NAME = expr`
+
+```sns
+model claude = inference("anthropic")
+print(claude.name)   # "claude" -- the declaration named it
+```
+
+Required, not optional — a plain `claude = inference("anthropic")` is a
+`SenseSyntaxError` telling you to add `model`. Without a name to override
+it, `.name` would just default to the model id (`"claude-sonnet-5"`) —
+that fallback still exists, but the only way to observe it now is a value
+that's never assigned at all, e.g. `print(inference("anthropic").name)`.
+`model x = 5` raises `SenseTypeError` before `x` is bound; it only ever
+accepts a `Model`.
+
+## Configure a call: labeled arguments
+
+```sns
+model claude = inference("anthropic", "claude-sonnet-5", temperature: 0.2, max_tokens: 1024)
+model gpt = inference("openai", "gpt-4o", api_key_env: "MY_OPENAI_KEY")
+```
+
+`temperature`/`max_tokens`/`api_key_env` are optional, forwarded to the
+real API call — `max_tokens` as OpenAI's own `max_completion_tokens` on
+the wire, since OpenAI's newer models reject the older name outright;
+`inference(..., max_tokens: ...)` is the one label to write regardless of
+provider. This is the only builtin that takes labeled arguments — a
+plain function/`tool`/`action` call stays positional-only.
+`inference("mock", ...)` takes its own pair instead —
+`response_template:`/`confidence:` — since there's no real API call to
+configure; passing `temperature:` to `"mock"` (or `response_template:` to
+a real provider) raises `SenseRuntimeError`.
+
+<Info>
+Switching providers based on whichever key is set is one branch:
+
+```sns
+import python "os" as os
+
+if os.environ.get("OPENAI_API_KEY") != nil:
+    model reasoning = inference("openai")
+else:
+    model reasoning = inference("anthropic")
+
+set delegation = reasoning
+```
+</Info>
+
+## Not built yet
+
+Streaming, multi-turn conversation history, system prompts, a local
+model (Ollama/llama.cpp). See [Roadmap](/roadmap).
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Tool-Calling" icon="hand-pointer" href="/ai-native/tool-calling">
+    Let a real model choose which `tool` to call.
+  </Card>
+  <Card title="Sessions" icon="layer-group" href="/ai-native/sessions">
+    Scope which model is active to one block.
+  </Card>
+  <Card title="Agents" icon="robot" href="/ai-native/agents">
+    Runtime entities that hold state and can pause mid-task.
+  </Card>
+  <Card title="Actions & policy" icon="shield-check" href="/safety/actions">
+    The same capability mechanism, for side effects instead of model calls.
+  </Card>
+</CardGroup>

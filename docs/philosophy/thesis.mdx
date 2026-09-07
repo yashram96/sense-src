@@ -1,0 +1,142 @@
+---
+title: The Problem, and the Thesis
+description: Why Sense exists — the gap between conventional languages and AI-native software, and Sense's specific bet.
+---
+
+## The problem
+
+Look at how a typical AI application gets built today:
+
+<Frame>
+```txt
+Python / TypeScript / Java / ...
+    +  LLM API client
+    +  Agent framework
+    +  Workflow engine
+    +  Vector database
+    +  Memory system
+    +  Tool / MCP integrations
+    +  IAM / permissions layer
+    +  Guardrails library
+    +  Evaluation harness
+    +  Observability stack
+    +  Human-approval workflow
+```
+</Frame>
+
+Every one of those pieces is glued on from *outside* the language, by
+convention, library, or framework. The programming language itself — the
+thing that actually defines what a valid, safe, meaningful program looks
+like — understands **none of it**. A Python function that calls an LLM and
+one that deletes a production database look, to the language, identical:
+both are just `foo(x)`. Nothing in the type system, the syntax, or the
+runtime distinguishes "this might be wrong" from "this is certain," or
+"this is safe to try" from "this cannot be undone."
+
+That gap is why so much AI-application code looks the same across
+companies and frameworks: everyone is independently re-deriving the same
+missing primitives — confidence tracking, permission checks, staged
+execution, audit trails — because the language gives them nothing to build
+on.
+
+## The thesis
+
+<Note>
+Sense is a programming language for probabilistic and autonomous
+computation, where reasoning, memory, capabilities, action,
+verification, and human control are first-class programming concepts.
+</Note>
+
+Sense is **not** trying to be another general-purpose language competing
+head-on with Python, Rust, Go, or Java for writing a web server or a CLI
+tool. Its bet is narrower and more specific: software whose behavior is
+*partly deterministic and partly probabilistic* is different enough from
+ordinary software that it deserves its own computational model.
+
+Traditional programming is a straight line:
+
+```txt
+Input → Computation → Deterministic Result
+```
+
+Sense targets a loop:
+
+```txt
+Ask → Plan → Act → Observe → Verify → Adapt
+```
+
+Both halves have to genuinely coexist. Sense doesn't pretend AI-generated
+results are deterministic (that's dishonest and eventually breaks), and it
+doesn't abandon deterministic computation as a foundation either (an agent
+built on nothing but probabilistic guesses is unusable). The language has
+to let both live in the same program, clearly distinguished, without
+forcing the programmer to simulate the distinction by hand every time.
+
+## Why this had to be a language, not a library
+
+It would be easy to build "Sense" as a Python package: `belief()`,
+`@action` decorators, a `Policy` class. Several teams have. The reason
+Sense is a language instead comes down to what a library *cannot* enforce:
+
+<Steps>
+  <Step title="A library can't stop you from ignoring it">
+    Nothing prevents a Python function decorated `@action` from just... also
+    doing the side effect immediately, or a teammate from calling the raw
+    API instead of the wrapped one six months later. A language-level rule
+    — "an action's body cannot run until `.commit()`" — is enforced by the
+    interpreter for every program written in the language, not opt-in per
+    call site.
+  </Step>
+  <Step title="A library can't make the type system lie less">
+    In Python, `answer = model.complete(prompt)` and `answer =
+    calculate_tax(income)` produce values of the exact same shape — a
+    string, a number. Whatever confidence or uncertainty the first one
+    carries has to be manually threaded through by convention, and it's
+    trivially easy to forget once and never notice. Sense's `ask(...)`
+    returns a distinct `Answer` value at the language level — you cannot
+    accidentally use it as a plain string, because it isn't one.
+  </Step>
+  <Step title="A library's scoping is not the language's scoping">
+    `set delegation = model` and `policy: deny x.y` need to nest, inherit,
+    and un-leak exactly the way variable scope does — enter a block, it's
+    active; leave the block, it's gone. That's a first-class feature of how
+    a language resolves names, not something a library can retrofit onto an
+    existing scoping model from outside.
+  </Step>
+</Steps>
+
+## The abstraction Sense is aiming for
+
+The goal is that a Sense programmer writes:
+
+```sns
+ask(problem)
+```
+
+and never:
+
+```python
+call_openai(api_key=..., model="gpt-4", messages=[...], temperature=0.7)
+```
+
+The same way nobody writing `sort(list)` needs to know or care whether the
+implementation is quicksort or timsort. The runtime decides how `ask`
+gets satisfied — a large model, a small local one, a symbolic solver, a
+cached answer, even a human — and the program stays legible regardless.
+That's the whole abstraction: **name what you want, let the runtime figure
+out how**, the same bargain every good abstraction in programming languages
+has always offered, just extended to cover reasoning and action instead of
+stopping at arithmetic and I/O.
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="The computational model" icon="cube" href="/philosophy/computational-model">
+    Value → Function → Process → Agent, and how deterministic and
+    probabilistic computation are meant to relate.
+  </Card>
+  <Card title="What Sense refuses to become" icon="ban" href="/philosophy/non-goals">
+    The explicit anti-goals — and the test for whether the language is
+    actually pulling its weight.
+  </Card>
+</CardGroup>

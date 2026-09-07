@@ -1,0 +1,86 @@
+---
+title: Arrays
+description: Literals, indexing, mutation, and the array-related builtins.
+---
+
+## Literals and indexing
+
+```sns
+scores = [1, 2, 3]
+print(scores[0])     # 1
+scores[0] = 10
+print(scores)         # [10, 2, 3]
+```
+
+Arrays are heterogeneous (elements don't need matching types), 0-indexed,
+and mutable in place. Indexing with a non-`Int` or an out-of-range index is
+a runtime error, not a silent `nil`:
+
+```sns
+scores["x"]    # error: index must be Int, got String
+scores[99]     # error: index 99 out of bounds
+```
+
+## Typed array declarations
+
+```sns
+users: Array<String> = ["alice", "bob"]
+```
+
+`Array<T>` checks every element against `T` when the annotation is
+present — see [Values & Types](/language/values-and-types) for how
+annotation-checking works generally.
+
+## Concatenation
+
+`+` concatenates two arrays (the same operator used for string
+concatenation and numeric addition — see
+[operators](/language/values-and-types#operators)):
+
+```sns
+print([1, 2] + [3, 4])   # [1, 2, 3, 4]
+```
+
+## Builtins
+
+<Frame>
+| Builtin | Does |
+|---|---|
+| `len(x)` | length of an `Array` or `String` |
+| `push(array, x)` | appends `x` in place, returns the array |
+| `range(a)` / `range(a,b)` / `range(a,b,step)` | builds an `Array<Int>` |
+</Frame>
+
+```sns
+xs = [1]
+push(xs, 2)
+push(xs, 3)
+print(xs)          # [1, 2, 3]
+print(len(xs))     # 3
+```
+
+## What's not here yet
+
+No slicing (`xs[1:3]`), no built-in `map`/`filter`/`reduce`, no
+dictionaries/maps/objects — the value model is deliberately minimal in
+Phase 1 (see [Roadmap](/roadmap)). A `for` loop plus `if` covers the same
+ground for now:
+
+```sns
+evens = []
+for n in range(0, 10):
+    if n % 2 == 0:
+        push(evens, n)
+print(evens)   # [0, 2, 4, 6, 8]
+```
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Modules" icon="folder-tree" href="/language/modules">
+    Splitting a program across files.
+  </Card>
+  <Card title="Grammar reference" icon="terminal" href="/reference/grammar">
+    The complete EBNF, including array literal syntax.
+  </Card>
+</CardGroup>

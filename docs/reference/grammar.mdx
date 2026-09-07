@@ -1,0 +1,149 @@
+---
+title: Grammar Reference
+description: The complete, current EBNF grammar for Sense (v0.3 syntax).
+---
+
+<Info>
+This is the authoritative grammar as implemented in `src/sense_lang/parser.py`
+and `src/sense_lang/lexer.py`. It's kept in sync with the source, not
+aspirational — if a construct isn't here, it isn't implemented.
+</Info>
+
+## Layout tokens
+
+Blocks are indentation, not braces. The lexer produces `NEWLINE`, `INDENT`,
+and `DEDENT` tokens from leading whitespace (spaces only — a leading tab is
+a `SenseSyntaxError`) before the parser ever runs; see
+[Indentation-Sensitive Lexing](/architecture/indentation-lexing) for the
+algorithm. Newlines and indentation are both suppressed inside `( )` / `[ ]`.
+
+## Full grammar
+
+```txt
+program     := statement* EOF
+
+statement   := typed_decl | local_decl | fn_decl | test_stmt | session_stmt
+             | agent_decl | action_decl | tool_decl | memory_decl
+             | model_decl | policy_stmt | set_stmt | if_stmt
+             | while_stmt | for_stmt | return_stmt | break_stmt
+             | continue_stmt | import_stmt | expr_stmt
+
+typed_decl   := IDENT ":" type "=" expr NEWLINE
+local_decl   := "local" IDENT (":" type)? "=" expr NEWLINE
+model_decl   := "model" IDENT "=" expr NEWLINE
+fn_decl      := "def" IDENT "(" params? ")" ("->" type)? block
+                                        # the one declaration shaped like
+                                        # Python's own -- see "Functions"
+params       := param ("," param)*
+param        := IDENT (":" type)?
+type         := IDENT ("<" type ("," type)* ">")?
+test_stmt    := "test" STRING block
+session_stmt := "session" IDENT block
+agent_decl   := "async"? "agent" IDENT block
+action_decl  := ("reversible" | "irreversible") "action" IDENT
+                "(" params? ")" ("requires" requirement ("," requirement)*)? block
+                ("rollback" block)?                       # the "?" isn't the
+                                                           # whole story: this
+                                                           # block is REQUIRED
+                                                           # on "reversible"
+                                                           # and FORBIDDEN on
+                                                           # "irreversible" --
+                                                           # enforced past what
+                                                           # bare EBNF expresses
+                                                           # ("rollback" is a
+                                                           # plain IDENT here,
+                                                           # not a keyword)
+tool_decl    := "async"? "tool" IDENT "(" params? ")" ("returns" type)?
+                ("requires" capability_path)? STRING? block
+memory_decl  := "persistent"? "memory" IDENT (":" STRING)? NEWLINE
+requirement  := "approval" | capability_path
+capability_path := IDENT ("." IDENT)*
+policy_stmt  := "policy" ":" (NEWLINE INDENT policy_rule+ DEDENT | policy_rule)
+policy_rule  := ("allow" | "deny") capability_path NEWLINE
+
+set_stmt     := "set" IDENT "=" expr NEWLINE
+if_stmt      := "if" expr block ("else" (if_stmt | block))?
+while_stmt   := "while" expr block
+for_stmt     := "for" IDENT "in" expr block
+return_stmt  := "return" expr? NEWLINE
+break_stmt   := "break" NEWLINE
+continue_stmt := "continue" NEWLINE
+import_stmt  := "import" "python"? STRING ("as" IDENT)? NEWLINE
+expr_stmt    := expr NEWLINE
+
+block        := ":" NEWLINE INDENT statement+ DEDENT
+              | ":" statement                          # inline form
+
+expr         := assignment
+assignment   := (IDENT | index_expr) "=" assignment | logic_or
+logic_or     := logic_and ("or" logic_and)*
+logic_and    := equality ("and" equality)*
+equality     := comparison (("==" | "!=") comparison)*
+comparison   := term (("<" | "<=" | ">" | ">=") term)*
+term         := factor (("+" | "-") factor)*
+factor       := unary (("*" | "/" | "%") unary)*
+unary        := ("not" | "-") unary | call
+call         := primary ( "(" args ")" | "." IDENT | "[" expr "]" )*
+args         := (arg ("," arg)*)?
+arg          := (IDENT ":" expr) | expr      # labeled must follow all positional
+primary      := INT | FLOAT | STRING | "true" | "false" | "nil"
+              | IDENT | "(" expr ")" | "[" (expr ("," expr)*)? "]"
+```
+
+## How the parser resolves ambiguity
+
+A function declaration itself is unambiguous — `def` is a dedicated
+keyword, so a call expression (`square(5)`) is never confused with a
+declaration. (A leftover `square(x) returns Int:` with no `def` — the
+syntax's first, since-replaced shape — is specifically detected and
+raises an error naming `def`, rather than a generic parse failure; see
+[Functions](/language/functions#declaration-vs-call-how-the-parser-knows).)
+
+Three other constructs still share a token prefix with something else,
+resolved by lookahead rather than a dedicated keyword:
+
+<Frame>
+| Shares a prefix with | Resolved by |
+|---|---|
+| A typed declaration (`name: Type = ...`) vs. anything else starting with `IDENT` | `IDENT` immediately followed by `COLON` is unambiguous — nothing else in the expression grammar produces a bare colon at statement start |
+| A labeled call argument (`temperature: 0.2`) vs. a positional one | Same rule as above, one level down: `IDENT` immediately followed by `COLON` inside a call's argument list is unambiguous the identical way — `:` never otherwise starts an expression there either |
+| A `rollback:` block (right after a `reversible action`'s body) vs. a bare top-level `rollback: Type = expr` typed declaration | `rollback` is a plain `IDENT`, not a keyword, so `Parser._action_decl` checks the lexeme itself, and only treats it as the block when the very next token is `COLON` (never `LPAREN`) — same disambiguation as the typed-declaration row above, so a variable genuinely named `rollback` declared right after a reversible action's body is the one (rare) case this misreads |
+</Frame>
+
+<Info>
+A `capability_path` segment accepts *any* keyword's own lexeme, not just
+`IDENT` — a capability path (`model.anthropic`, `payment.execute`, ...) is
+a free-form dotted namespace label, not a Sense variable, so reserving a
+word as a language keyword (`model`, `action`, `tool`, ...) must not
+retroactively break an already-established capability name that happens
+to use it.
+</Info>
+
+## Keywords
+
+```txt
+def  return  returns  if  else  while  for  in  break  continue
+true  false  nil  import  as  set  local  and  or  not
+session  agent  action  reversible  irreversible  requires
+policy  allow  deny  approval  test  python  model
+tool  memory  async  persistent
+```
+
+Every keyword is a plain lowercase word — no reserved punctuation beyond
+what's shown in the grammar above.
+
+## File extension and comments
+
+Sense source files use `.sns`. Comments start with `#` and run to end of
+line; there's no block-comment syntax.
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Builtins reference" icon="function" href="/reference/builtins">
+    Every built-in function, with signatures.
+  </Card>
+  <Card title="Error reference" icon="triangle-exclamation" href="/reference/errors">
+    The error hierarchy and when each one fires.
+  </Card>
+</CardGroup>

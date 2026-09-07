@@ -1,0 +1,52 @@
+# The companion to examples/rollback_approval_workflow.sns -- and the
+# more important of the two files. This one is SUPPOSED to end in an
+# uncaught SenseError and a nonzero exit code. That is the demonstration,
+# not a bug in the example.
+#
+# The story: the on-call engineer verified the rollback while they still
+# had the capability. Before they could commit it, the on-call window
+# closed and the capability was revoked -- a real "circumstances changed
+# while I was still deciding" scenario, not a contrived one.
+#
+# What this actually proves: `.commit()` re-checks the capability
+# independently of `.verify()` -- it does not trust a verification that
+# might now be stale. That check is real code, not a claim; this file
+# exercises it for real.
+#
+# What this does NOT claim: Sense does not catch this, retry it, roll
+# anything back automatically, or otherwise recover on your behalf.
+# There is no try/except in the language. An uncaught SenseError stops
+# the program right here, `sense run` exits 1, and whatever handling
+# happens next -- paging someone, re-queuing the request, asking again
+# tomorrow -- is up to the code calling into Sense, not something Sense
+# invents on your behalf. That is a real, current limitation, not a
+# future guarantee stated as if it already existed.
+#
+# sense run examples/rollback_approval_workflow_failure.sns
+# echo $?     # 1
+
+irreversible action revert_deploy(service: String, to_build: String) requires deploy.rollback, approval:
+    print("  -> redeploying " + service + " to build " + to_build)
+
+policy: deny deploy.rollback
+
+proposal = revert_deploy("checkout-api", "#481")
+
+session oncall:
+    policy: allow deploy.rollback
+
+    proposal.verify()
+    print("state after verify: " + proposal.state)  # "verified" -- capability was allowed right here, right now
+    proposal.approve()
+
+    print("")
+    print("=== ten minutes pass. the on-call window closes. ===")
+
+# Back outside `session oncall`: its `allow` never touched the outer
+# scope, which has denied deploy.rollback since line 33 the entire time.
+# Nothing needs to be revoked here -- there was never a wider grant to
+# take back.
+print("attempting to commit the already-verified rollback...")
+proposal.commit()  # SensePolicyError -- denied, even though verify() already passed
+
+print("this line never runs")

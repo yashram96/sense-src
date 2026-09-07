@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sense-docs",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd /d docs && mint dev --no-open"],
+      "port": 3000,
+      "autoPort": true
+    },
+    {
+      "name": "sense-landing",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8123", "--directory", "landing"],
+      "port": 8123
+    }
+  ]
+}

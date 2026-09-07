@@ -1,0 +1,98 @@
+---
+title: Interpreter Pipeline
+description: How Sense source text becomes a running program, end to end.
+---
+
+## The pipeline
+
+```txt
+source text (.sns)
+      │
+      ▼
+   Lexer            tokens, with indentation resolved into
+  (lexer.py)         NEWLINE / INDENT / DEDENT tokens
+      │
+      ▼
+   Parser           recursive-descent, full token list held in
+ (parser.py)          memory (enables lookahead without backtracking)
+      │
+      ▼
+    AST             plain dataclasses, one per construct
+(ast_nodes.py)
+      │
+      ▼
+ Interpreter        tree-walking evaluator: one _exec_* method per
+(interpreter.py)      statement type, one _eval_* method per expression type
+      │
+      ▼
+   Values           Python-native where possible (int/float/str/bool/
+  (values.py)         list), dedicated classes for Function/Model/Answer/
+                      Agent/Action/Module
+```
+
+There is no intermediate bytecode or compiled form — the interpreter walks
+the AST directly. This is a deliberate Phase 1 simplification (see
+[Roadmap](/roadmap)): fast to change while the language's semantics are
+still moving, not a permanent architectural commitment.
+
+## Statement and expression dispatch
+
+Both the statement executor and the expression evaluator use the same
+pattern — reflection over the node's class name, rather than a big
+if/elif chain or a separate visitor class per concern:
+
+```python
+def _execute(self, stmt, env, file_path):
+    method = getattr(self, f"_exec_{type(stmt).__name__}", None)
+    method(stmt, env, file_path)
+
+def _evaluate(self, expr, env, file_path):
+    method = getattr(self, f"_eval_{type(expr).__name__}", None)
+    return method(expr, env, file_path)
+```
+
+Adding a new statement or expression kind means adding one AST dataclass
+and one correspondingly-named method — no central switch statement to keep
+in sync.
+
+## Control flow inside the interpreter
+
+`return`, `break`, and `continue` are implemented as internal Python
+exceptions (`_Return`, `_Break`, `_Continue`) that unwind the Python call
+stack until something is prepared to catch them — a function call catches
+`_Return`, a loop catches `_Break`/`_Continue`. This is a standard
+tree-walking-interpreter technique: it reuses Python's own stack-unwinding
+machinery instead of threading explicit "did we hit a return" signals
+through every level of statement execution by hand.
+
+## Environments carry more than variables
+
+Every statement/expression method takes an `env: Environment` parameter —
+the current lexical scope. As of the agent pause/resume work, `Environment`
+also carries the current scope's delegation and policy overrides (see
+[Scoping & Delegation](/architecture/scoping-and-delegation)) and, for an
+agent's own scope, a reference back to that agent (so `pause()` can find
+"which agent am I currently inside," the same way a variable lookup finds
+"which binding am I currently inside").
+
+## Modules and the global environment
+
+`Interpreter.globals` is a single `Environment` holding every builtin.
+Running a file (or importing a module) creates a **child** of `globals` for
+that file/module's own top-level bindings — so builtins are visible
+everywhere, but two different files' top-level variables never collide.
+Imported modules are cached by absolute path and executed exactly once,
+with in-progress imports tracked separately to detect cycles (see
+[Modules](/language/modules)).
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Indentation-sensitive lexing" icon="text-height" href="/architecture/indentation-lexing">
+    How the lexer turns leading whitespace into `INDENT`/`DEDENT` tokens.
+  </Card>
+  <Card title="Scoping & delegation" icon="layer-group" href="/architecture/scoping-and-delegation">
+    Why `set delegation` and `policy` live on `Environment`, not the
+    interpreter.
+  </Card>
+</CardGroup>

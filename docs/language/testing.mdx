@@ -1,0 +1,126 @@
+---
+title: Testing
+description: A real testing framework for Sense programs — isolated, individually-reported test blocks and a sense test CLI command.
+---
+
+## `test "description": ...`
+
+```sns
+def square(x) -> Int:
+    return x * x
+
+test "square of 3 is 9":
+    assert(square(3) == 9)
+
+test "square of 0 is 0":
+    assert(square(0) == 0, "square(0) should be 0")
+```
+
+```bash
+sense test myfile.sns
+```
+
+```txt
+myfile.sns
+  PASS  square of 3 is 9
+  PASS  square of 0 is 0
+
+1 file, 2 tests: 2 passed, 0 failed
+```
+
+Before this existed, the only way to check anything in a Sense program was
+a bare `assert(...)` that crashed the whole script on the first failure —
+useless for actually seeing "4 things work, 1 doesn't, here's which one."
+
+## It's not deferred execution — it runs immediately, in order
+
+A `test "description": ...` block executes exactly where it appears in the
+file, the same way a [`session`](/ai-native/sessions) does — top to bottom,
+immediately. What makes it a *testing* construct isn't laziness; it's that
+a failure inside is **caught and recorded instead of raised**:
+
+```sns
+test "this one fails":
+    assert(1 == 2, "nope")
+
+print("still runs")   # yes, even though the test above failed
+```
+
+```txt
+still runs
+```
+
+One failing `assert(...)` doesn't stop its sibling tests, the rest of the
+file, or the rest of a multi-file `sense test` run. Each `test` block gets
+its own independent pass/fail result, and its own child scope — a variable
+it creates doesn't leak to a sibling test or the surrounding file, the same
+[scoping rule](/language/variables-and-scope) every other block in Sense
+follows. Helper functions defined in the file *are* visible from inside a
+test, the normal way closures work.
+
+<Warning>
+Only `SenseError` subclasses (assertion failures, type errors, runtime
+errors, policy denials, ...) and unexpected host-level exceptions are
+caught this way. A stray `return`/`break`/`continue` with no enclosing
+function/loop is a genuine misuse, not a test failure, and still propagates.
+</Warning>
+
+## `sense test <file>` vs. `sense test <directory>`
+
+```bash
+sense test path/to/one_file.sns     # always runs that file, regardless of name
+sense test path/to/a/directory/     # recursively finds test_*.sns / *_test.sns
+```
+
+A directory is searched using the same naming convention `pytest` uses
+(`test_*.sns` or `*_test.sns`), specifically so an ordinary example file
+sitting next to your tests doesn't get swept in and executed as one.
+
+## Reading the report
+
+```txt
+tests/test_math.sns
+  PASS  addition works
+  FAIL  division by zero should error
+        expected an error, got 5
+
+tests/test_strings.sns
+  PASS  concatenation
+
+2 files, 3 tests: 2 passed, 1 failed
+```
+
+Exit code `1` if anything failed, or if a file had an error **outside** any
+`test` block (a syntax error, or an unhandled exception in ordinary
+top-level code) — reported as `ERROR` rather than a named `FAIL`, since it
+isn't tied to a specific test description.
+
+## What this doesn't cover yet
+
+<AccordionGroup>
+  <Accordion title="Fixtures, setup/teardown, mocking">
+    Not built. Each `test` block is a single, self-contained assertion
+    context.
+  </Accordion>
+  <Accordion title="Coverage reporting, parallel runs, skip/xfail marking">
+    Not built.
+  </Accordion>
+  <Accordion title="Separating a file's own output from the test report">
+    A file's `print(...)` calls outside any `test` block are interleaved
+    with the PASS/FAIL report, not captured separately.
+  </Accordion>
+</AccordionGroup>
+
+See [Roadmap](/roadmap) (Phase 5) for these tracked with reasons, and
+[CLI Reference](/reference/cli) for the full `sense test` behavior.
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="CLI reference" icon="terminal" href="/reference/cli">
+    `sense test`'s exact flags, exit codes, and discovery rules.
+  </Card>
+  <Card title="Roadmap" icon="map" href="/roadmap">
+    What's built vs. planned for Phase 5.
+  </Card>
+</CardGroup>

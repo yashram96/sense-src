@@ -1,0 +1,48 @@
+# `persistent memory` -- durable, versioned, append-only key/value storage,
+# scoped down from a literal Delta Lake to the part worth keeping: an
+# append-only log gives versioning and auditing as the same mechanism.
+#
+# `persistent memory ledger` (no path given) would use a per-script
+# default location (a `.sense_memory/` folder next to this file, not
+# wherever `sense run` happens to be invoked from). An *explicit* path is
+# given here instead, on purpose: this demo's own comments assert exact version
+# numbers below, which only stay true if it starts from the same clean
+# slate every run -- deleted first, so re-running this example is
+# deterministic regardless of where its default would otherwise land.
+
+import python "os" as os
+
+if os.path.exists("ledger.sense_memory.db"):
+    os.remove("ledger.sense_memory.db")
+
+persistent memory ledger: "ledger.sense_memory.db"
+
+ledger.remember("name", "ada")
+print(ledger.recall("name"))  # "ada"
+
+ledger.remember("name", "ada lovelace")
+print(ledger.recall("name"))  # "ada lovelace" -- the latest value
+
+# remember() never overwrites in place -- it's a new row every time, so
+# nothing here is ever lost, just superseded.
+for line in ledger.history("name"):
+    print(line)
+
+# Time travel: the value as of an earlier version.
+print(ledger.as_of("name", 1))  # "ada" -- what it was before the second remember()
+
+ledger.remember("status", "draft")
+print(ledger.keys())  # [name, status]
+
+ledger.forget("status")
+print(ledger.recall("status"))  # nil
+print(ledger.keys())  # [name] -- forgotten keys drop out of keys()
+print(len(ledger.history("status")))  # 2 -- but the forget is still on record
+
+print(ledger.path)
+
+# Durability: a brand-new Interpreter pointed at the same file sees this
+# state -- that's the actual feature. (Demonstrated in
+# tests/test_persistent_memory.py::test_durable_across_separate_interpreter_instances
+# by literally constructing a second Interpreter; a single Sense program
+# can't observe "a different process" from inside itself.)

@@ -1,0 +1,166 @@
+---
+title: Tool
+description: A capability-checked function — typed, permissioned, and audited, but with no prepare/verify/commit lifecycle.
+---
+
+## The shape of it
+
+```sns
+tool search(query: String) returns String requires web.search:
+    return "results for " + query
+
+policy:
+    allow web.search
+
+print(search("sense lang"))   # "results for sense lang"
+```
+
+External functionality should have typed interfaces and explicit
+permissions. That's `tool` — a distinct primitive from
+[`action`](/safety/actions), not a variant of it:
+
+<Steps>
+  <Step title="Calling a tool runs the body immediately">
+    No `prepare → verify → commit`. A tool isn't necessarily world-changing
+    — a search, a lookup — so there's no reason to make its caller thread
+    through the full action lifecycle just to get typed, permissioned
+    access to it.
+  </Step>
+  <Step title="The capability check happens once, at the call site">
+    If `requires` is given, it's checked against the *caller's* policy
+    scope the instant the call happens — the same `Environment.get_capability`
+    lookup `action`'s `.verify()`/`.commit()` use — and denial raises
+    `SensePolicyError` before the body ever runs.
+  </Step>
+  <Step title="Every call is audited">
+    Tool calls land in the same `audit_log()` action events do, tagged
+    `tool` instead of `reversible`/`irreversible`.
+  </Step>
+</Steps>
+
+## `requires` is optional, same as `action`
+
+```sns
+tool add(a: Int, b: Int) returns Int:
+    return a + b
+
+policy:
+    deny anything.at.all
+
+print(add(1, 2))   # 3 -- unaffected; add() names no capability
+```
+
+A tool with no `requires` clause is just a documented, typed interface —
+unrestricted, exactly like a plain [`fn`](/language/functions). The value
+of declaring it as `tool` rather than `fn` is purely documentation and
+audit-log visibility until you add a capability.
+
+## Closing the "what an action's body calls" gap
+
+<Warning>
+An `action`'s `requires` only gates *entering* that action — code the body
+goes on to call has no capability check of its own, unless that code is
+itself a `tool`.
+</Warning>
+
+```sns
+tool charge_card(amount: Int) returns String requires payment.execute:
+    return "charged " + str(amount)
+
+irreversible action checkout(amount: Int) requires order.place:
+    return charge_card(amount)   # this call is independently capability-checked
+
+policy:
+    allow order.place
+    deny payment.execute
+
+o = checkout(50)
+o.verify()
+o.commit()   # SensePolicyError -- payment.execute is denied, even though order.place is allowed
+```
+
+Wrapping what an action's body calls in a `tool` gets that call checked
+too, without any new enforcement mechanism — the same policy-scope lookup
+already does the work.
+
+## Describing a tool so a model can use it
+
+```sns
+tool search(query: String) returns String requires web.search "search the web for a query":
+    return "results for " + query
+```
+
+The optional trailing string is backward compatible — every tool keeps
+working undescribed exactly as before — but it becomes **required** the
+moment a tool is handed to
+[`ask_with_tools`](/ai-native/tool-calling)
+(`SenseRuntimeError` naming the tool if missing): that's the whole point
+of a real model choosing which tool to call rather than Sense code
+deciding by hand — the description is what it decides *from*. It has to
+stay on the same source line as the rest of the signature; Sense's
+indentation-based lexer has no bracket-style newline suppression spanning
+past it.
+
+## Concurrency: `async tool`
+
+Every example above is sync — the call blocks until the body returns.
+`async tool` makes that optional:
+
+```sns
+async tool slow_search(query: String) returns String:
+    return "results for " + query
+
+f = slow_search("sense")   # returns a Future immediately, body runs on its own thread
+print(type_of(f))          # "Future"
+print(f.done)                # a cheap non-blocking poll
+print(await(f))              # blocks until the thread finishes, returns "results for sense"
+```
+
+The arity/capability/argument-type checks stay synchronous — a denied
+capability or a bad argument still raises immediately at the call site,
+exactly like a sync tool, so `SensePolicyError` never needs `await()` to
+surface. Only once those pass does the body run, on its own daemon thread,
+with the call returning a `Future` immediately. `await(future)` blocks
+until it's done and either returns the body's `return` value or re-raises
+whatever it raised; the `returns` type check (if declared) happens at
+await time, not call time, since the value doesn't exist yet when the call
+returns.
+
+<Info>
+See [Agents#concurrency](/ai-native/agents#concurrency-async-agent) for why
+this is opt-in rather than every call becoming non-blocking by default
+(the function-coloring problem), and for the same unmitigated concurrency
+caveats — no synchronization primitives, and no true parallelism for
+CPU-bound work under the GIL, only I/O-bound work actually overlaps.
+</Info>
+
+## What this doesn't do
+
+<AccordionGroup>
+  <Accordion title="requires approval">
+    Not supported. There's no `.commit()` boundary to check it at — a tool
+    runs synchronously the instant it's called.
+  </Accordion>
+  <Accordion title="reversible / irreversible classification">
+    A tool isn't declared as world-changing. If it needs to be, wrap it in
+    an [`action`](/safety/actions) instead.
+  </Accordion>
+  <Accordion title="Capability dimensions beyond a name">
+    `requires` stays a bare dotted path, same as `action` today — no
+    cost/risk/rate-limit attached. Tracked on the [Roadmap](/roadmap).
+  </Accordion>
+</AccordionGroup>
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Actions & policy" icon="shield-check" href="/safety/actions">
+    The full prepare → verify → commit lifecycle a `tool` deliberately skips.
+  </Card>
+  <Card title="Tool-Calling" icon="hand-pointer" href="/ai-native/tool-calling">
+    Letting a real model decide which `tool` to invoke.
+  </Card>
+  <Card title="Agents" icon="robot" href="/ai-native/agents#concurrency-async-agent">
+    The same opt-in concurrency model, for a long-running autonomous body.
+  </Card>
+</CardGroup>

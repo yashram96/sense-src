@@ -1,0 +1,45 @@
+# `skill(name, description, tools)` -- a named, reusable bundle of `tool`s.
+#
+# No dedicated keyword, same reasoning as why there's no `model` keyword:
+# the builtin's return type (a `Skill` value) already carries the meaning
+# wherever it's checked, here in ask_with_tools(). The description
+# isn't just documentation -- it's prepended to the prompt as an
+# "Available skills:" preamble, so it has real, not cosmetic, effect.
+#
+# Requires a real ANTHROPIC_API_KEY (this makes real, costed network
+# calls) -- this example checks for it first and skips gracefully if it's
+# not set, so it stays runnable (and free) in CI/offline.
+
+import python "os" as os
+
+if os.environ.get("ANTHROPIC_API_KEY") == nil:
+    print("skip: set ANTHROPIC_API_KEY to run this example")
+else:
+    tool search(query: String) returns String requires web.search "search the web for a query":
+        return "results for " + query
+
+    tool fetch_page(url: String) returns String requires web.fetch "fetch the contents of a web page":
+        return "contents of " + url
+
+    tool send_email(to: String, body: String) returns String requires email.send "send an email":
+        return "sent to " + to
+
+    policy:
+        allow web.search
+        allow web.fetch
+        allow email.send
+
+    web_research = skill("web_research", "search the web and fetch pages to answer questions", [search, fetch_page])
+    email_skill = skill("email", "compose and send emails on the user's behalf", [send_email])
+
+    model claude = inference("anthropic")
+    set delegation = claude
+
+    # The model sees both skills' descriptions (not just their tools) and
+    # decides which one applies -- reusable across as many calls as you
+    # like, instead of re-listing individual tools each time.
+    result = ask_with_tools("what's the latest news about AI-native programming languages?", [web_research, email_skill])
+    print(result.value)
+
+    for line in audit_log():
+        print(line)

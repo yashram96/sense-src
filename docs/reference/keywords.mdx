@@ -1,0 +1,514 @@
+---
+title: Keywords Reference
+description: Every keyword in the language, in one place — full syntax, when to reach for it, and a minimal example.
+---
+
+## Which keyword do I want?
+
+<Frame>
+| I want to... | Use |
+|---|---|
+| Write ordinary code, no permission check needed | [`def`](#def) |
+| Do something permission-checked that runs immediately | [`tool`](#tool-async-on-tool) |
+| Change the outside world, in two steps (prepare, then commit) | [`action`](#action-reversible-irreversible) |
+| ...and the effect can be undone | `reversible action` **with** [`rollback:`](#rollback-declaration) (required) |
+| ...and the effect can't be undone | `irreversible action` (no `rollback:` allowed) |
+| Run something long-lived that can pause mid-task, waiting on a result | [`agent`](#agent-async-on-agent) |
+| Ask a model something | [`ask(prompt)`](/ai-native/model-ask-answer) after `set delegation = <model>` |
+| Name a `Model` so `.name` sticks to it | [`model`](#model) |
+| Store data for this run only | [`memory`](#memory-persistent) |
+| Store data that survives the process, with history | `persistent memory` |
+| Try a different model or policy for one block only | [`session`](#session) |
+| Create a binding that won't leak to an outer variable of the same name | [`local`](#local) |
+</Frame>
+
+If none of those fit, you probably want a plain function (`def`) or a
+plain variable (`name = expr`) — most code is one of those two.
+
+<Info>
+The rest of this page is for lookup, not learning order: full syntax and
+a runnable example per keyword. New to Sense? Start with the
+[Quickstart](/quickstart) or a [Tutorial](/tutorials/ask-a-model) instead.
+</Info>
+
+## Declarations and bindings
+
+### `def`
+
+**Syntax:** `"def" NAME "(" params? ")" ["->" Type] : block`
+
+Declares a plain function — no capability check, no audit entry, always
+runs immediately, never async. Deliberately shaped like Python's own
+`def`/`->`, unlike every other declaration in Sense (`tool`, `action`,
+`agent`, ...), each of which keeps its own keyword-first shape and
+`returns` for a return type instead — a plain function has none of the
+capability/safety/agency machinery that motivates those, so it's the one
+concept meant to be exactly what a Python programmer already knows.
+
+**Use it when:** any ordinary, deterministic computation with no
+permission check or audit trail needed. Reach for [`tool`](#tool-async-on-tool)
+the moment a call needs a capability check or an audit-log entry.
+
+```sns
+def square(x: Int) -> Int:
+    return x * x
+
+print(square(6))
+```
+
+**Full guide:** [Functions](/language/functions)
+
+### `local`
+
+**Syntax:** `local NAME [: Type] = expr`
+
+Declares a name scoped to the current block, shadowing any outer name of
+the same spelling — plain `NAME = expr` instead reuses or creates a
+binding in the nearest enclosing scope that already has it, or the
+current scope if none does.
+
+**Use it when:** you specifically need a fresh binding that can't
+accidentally write through to an outer variable of the same name (a loop
+counter inside a function that happens to share a name with something
+outside it, for instance).
+
+```sns
+x = 1
+if true:
+    local x = 2
+    print(x)   # 2
+print(x)       # 1 -- the inner `local x` never touched the outer one
+```
+
+**Full guide:** [Variables & Scope](/language/variables-and-scope)
+
+### `set`
+
+**Syntax:** `set NAME = expr`
+
+Explicit-configuration assignment — used for exactly one thing today:
+`set delegation = <model>`, choosing which `Model` answers `ask()`
+calls in the current scope and everything nested inside it.
+
+**Use it when:** you're wiring up which model a block of code reasons
+with. It's deliberately a different keyword from plain assignment because
+"which model answers calls" is runtime configuration, not a program
+variable.
+
+```sns
+set delegation = inference("mock", "demo")
+print(ask("hello?").value)
+```
+
+**Full guide:** [Model, Ask & Answer](/ai-native/model-ask-answer)
+
+### `import`, `python`, `as`
+
+**Syntax:** `import ["python"] "module-name" ["as" ALIAS]`
+
+Brings a module into scope. `import "x"` imports a Sense module; adding
+`python` reaches into any installed Python package instead — Sense's own
+interpreter runs in the same Python process, so this needs no FFI.
+
+**Use it when:** you need something Sense doesn't have natively — `math`,
+`json`, `os`, or any third-party package already installed in the same
+environment.
+
+```sns
+import python "math" as math
+print(math.sqrt(16))
+```
+
+**Full guide:** [Python Interop](/language/python-interop) ·
+[Modules](/language/modules)
+
+## Control flow
+
+### `if`, `else`
+
+**Syntax:** `if expr: block ["else" (if_stmt | block)]`
+
+Ordinary conditional branching, chainable via `else if`.
+
+```sns
+if score > 90:
+    print("A")
+else if score > 80:
+    print("B")
+else:
+    print("C")
+```
+
+### `while`
+
+**Syntax:** `while expr: block`
+
+Loops while the condition is truthy, re-checked before every iteration.
+
+```sns
+i = 0
+while i < 3:
+    print(i)
+    i = i + 1
+```
+
+### `for`, `in`
+
+**Syntax:** `for NAME "in" expr: block`
+
+Iterates an `Array` (or the result of `range(...)`), binding each element
+to `NAME` in turn.
+
+```sns
+for n in range(1, 4):
+    print(n)   # 1, 2, 3
+```
+
+### `break`, `continue`
+
+**Syntax:** `break` / `continue`
+
+`break` exits the nearest enclosing `while`/`for` immediately; `continue`
+skips straight to that loop's next iteration.
+
+```sns
+for user in users:
+    if user == "skip-me":
+        continue
+    if user == "stop-here":
+        break
+    print(user)
+```
+
+**Full guide:** [Control Flow](/language/control-flow) ·
+[Arrays](/language/arrays)
+
+### `return`, `returns`
+
+**Syntax:** `return [expr]` (in a body) · `("tool"|"action" NAME)(params) ["returns" Type]:` (in a `tool`/`action` declaration — a plain `def` uses `->` instead, see [`def`](#def))
+
+`returns Type` on a `tool`/`action` declaration is an optional
+return-type annotation, checked against what `return` actually produces.
+Bare `return` with no expression returns `nil`.
+
+**Use it when:** a return-type annotation is worth adding whenever a
+call's result matters to its caller — it turns a silent type mismatch
+into an immediate `SenseRuntimeError` at the `return` site.
+
+```sns
+tool square(x: Int) returns Int:
+    return x * x
+```
+
+**Full guide:** [Functions](/language/functions) · [Tool](/ai-native/tool)
+
+## Literals and operators
+
+### `true`, `false`, `nil`
+
+**Syntax:** `true` / `false` / `nil`
+
+The `Bool` literals and the single "no value" literal. `nil` is what a
+missing `memory`/`persistent memory` key returns via `recall()`, and what
+an unset optional value looks like generally — there's no separate
+`Option`/`Maybe` type.
+
+```sns
+found = nil
+if found == nil:
+    print("nothing yet")
+```
+
+### `and`, `or`, `not`
+
+**Syntax:** `expr "and" expr` · `expr "or" expr` · `"not" expr`
+
+Word-based logical operators (not `&&`/`||`/`!`) — short-circuiting, same
+as most languages.
+
+```sns
+if age >= 18 and not banned:
+    print("allowed")
+```
+
+**Full guide:** [Values & Types](/language/values-and-types)
+
+## Safety and capabilities
+
+### `action`, `reversible`, `irreversible`
+
+**Syntax:** `("reversible" | "irreversible") "action" NAME(params) ["requires" cap[, cap...]] : block`
+
+Declares a staged effect with a real `prepare → verify → commit`
+lifecycle: calling it only prepares (the body runs, but nothing external
+should happen until `.commit()`); `.verify()` checks capability and
+marks it ready; `.commit()` re-checks capability independently and
+actually performs the effect. `reversible` requires a `rollback` block
+(see below) — a reversible action with no actual undo is a claim the
+declaration doesn't back up; `irreversible` forbids one — an operation
+that "cannot be reliably undone" shouldn't offer a rollback that pretends
+otherwise.
+
+**Use it when:** the operation changes something outside the program —
+sends an email, charges a card, deletes an account. Use [`tool`](#tool)
+instead for something that isn't necessarily world-changing (a lookup, a
+search).
+
+```sns
+irreversible action send_mail(to: String, body: String) requires email.send:
+    print("SENDING to " + to + ": " + body)
+
+policy: allow email.send
+
+mail = send_mail("alice@example.com", "hi")
+mail.verify()
+mail.commit()   # only now does the effect actually happen
+```
+
+**Full guide:** [Actions](/safety/actions)
+
+### `requires`, `approval`
+
+**Syntax:** `"requires" (capability_path | "approval") [, ...]`
+
+Attached to an `action` or `tool` declaration. A dotted
+`capability_path` (like `email.send`) is checked against the caller's
+policy scope; the bare word `approval` instead **mandates** a call to
+`<action>.approve()` before `.commit()` will succeed, raising
+`SenseApprovalError` if skipped — rather than relying on calling code to
+remember to add that check by hand.
+
+**Use it when:** `approval` is for anything that should never auto-commit
+even when policy allows it — a human sign-off step, not a capability
+check.
+
+```sns
+irreversible action delete_account(user: String) requires account.delete, approval:
+    print("DELETING " + user)
+```
+
+**Full guide:** [Actions](/safety/actions) ·
+[Pause & Resume](/ai-native/pause-resume) (for `ask_human` + `approve`)
+
+### `policy`, `allow`, `deny`
+
+**Syntax:** `"policy" ":" (NEWLINE INDENT ("allow"|"deny") capability_path)+`
+
+Declares which capability paths the current scope permits or forbids.
+Scopes like `set delegation` does — a `policy` written inside a
+`session`/`agent` only affects that scope, without changing the policy
+outside it. Default is allow: a capability with no matching rule anywhere
+in the scope chain is permitted.
+
+**Use it when:** anywhere you're granting or restricting a `tool`,
+`action`, or real model provider's capability string.
+
+```sns
+policy:
+    allow web.search
+    deny payment.execute
+```
+
+**Full guide:** [Policy](/safety/policy)
+
+### `rollback` (declaration)
+
+**Syntax:** (required on a `reversible action`) `"rollback" : block`
+
+Declares the body `<action>.rollback()` runs after a `.commit()`, to undo
+the effect — nested inside the exact scope the commit body ran in, so it
+sees any local variable that body computed, not just the original args.
+Mandatory on `reversible action` — a reversible action with no
+actual undo is a claim the declaration doesn't back up, so the parser
+rejects one that omits it; use `irreversible action` instead if there
+genuinely is no undo, which forbids this block entirely. Shares its name
+with the `.rollback()` method that runs it on purpose (originally spelled
+`compensate:`, a needless asymmetry) — it's still a plain identifier, not
+a reserved keyword, recognized only by name plus a following `:`.
+
+**Use it when:** any `reversible action` — it's required. Use
+`irreversible action` instead the moment a committed effect has no real,
+expressible undo (an email can't be unsent).
+
+```sns
+reversible action update_profile(user: String, bio: String) requires profile.write:
+    print("SETTING " + user + "'s bio to: " + bio)
+rollback:
+    print("REVERTING " + user + "'s bio")
+
+a = update_profile("alice", "new bio")
+a.verify()
+a.commit()
+a.rollback()   # runs the rollback block; re-checks the capability first
+```
+
+**Full guide:** [Rollback](/safety/actions#rollback-undoing-a-committed-action)
+
+## AI-native primitives
+
+### `model`
+
+**Syntax:** `"model" NAME "=" expr`
+
+Declares `NAME`, checked immediately to actually evaluate to a `Model`
+(`SenseTypeError` otherwise) — and the declaration itself names it:
+`NAME` becomes the model's own `.name`, overriding whatever the
+expression's value carried. Required, not optional: naming an
+`inference(...)` result with a plain `x = inference(...)` (no keyword) is
+a `SenseSyntaxError`, pointing at the fix. This isn't required everywhere
+a `Model` value flows — only for the direct-call assignment shape.
+`set delegation = inference(...)`, a bare `inference(...)` expression,
+and `inference(...).name` chained straight off the call are all still
+legal without it, since none of them names a variable.
+
+**Use it when:** naming a `Model`, which — since `inference(...)` needs
+it — is every time. The name matters for more than just tidiness: it's
+what shows up in `audit_log()` and is readable back via `.name`.
+
+```sns
+model claude = inference("anthropic", "claude-sonnet-5", temperature: 0.2)
+set delegation = claude
+print(claude.name)   # "claude"
+```
+
+**Full guide:** [Model, Ask & Answer](/ai-native/model-ask-answer)
+
+### `session`
+
+**Syntax:** `"session" NAME : block`
+
+A scope boundary, not an autonomous actor — `set delegation`/`policy`
+written inside a session don't leak back out once it ends.
+
+**Use it when:** you want to try a different model or policy for a
+self-contained piece of work without affecting the surrounding code.
+
+```sns
+session researcher:
+    set delegation = inference("mock", "inner")
+    print(ask("best database?").value)
+# outside the session, delegation is back to whatever it was before
+```
+
+**Full guide:** [Sessions](/ai-native/sessions)
+
+### `agent`, `async` (on `agent`)
+
+**Syntax:** `"async"? "agent" NAME : block`
+
+A first-class runtime entity with identity, persistent state, and a
+lifecycle — `start(agent)` runs its body; `pause()`/`resume()` can
+suspend and continue it mid-body. Plain (sync) `agent` blocks the caller
+until the body finishes or pauses; `async agent` makes `start()`/
+`resume()` return immediately instead, running the body on its own
+thread — use [`await(agent)`](/reference/builtins) to block for the
+result later.
+
+**Use it when:** plain `agent` for a sequential unit of autonomous work;
+`async agent` specifically when you want two agents' bodies — or an
+agent's body and its caller — to make progress at the same time.
+
+```sns
+agent analyst:
+    finding = ask("summarize the findings")
+    print(finding.value)
+
+start(analyst)
+```
+
+**Full guide:** [Agents](/ai-native/agents) ·
+[Pause & Resume](/ai-native/pause-resume)
+
+### `tool`, `async` (on `tool`)
+
+**Syntax:** `"async"? "tool" NAME(params) ["returns" Type] ["requires" cap] [STRING] : block`
+
+A capability-checked function with no prepare/verify/commit lifecycle —
+calling it runs the body immediately. The optional trailing `STRING`
+description (same source line as the signature) becomes required only
+once the tool is handed to `ask_with_tools`. `async tool` returns a
+`Future` immediately instead of blocking; `await(future)` gets the
+result.
+
+**Use it when:** you want typed, permissioned, audited access to
+something that isn't necessarily world-changing. Use `action` instead
+when the call changes the outside world and needs a staged
+prepare/verify/commit lifecycle.
+
+```sns
+tool search(query: String) returns String requires web.search "search the web":
+    return "results for " + query
+
+policy: allow web.search
+print(search("sense lang"))
+```
+
+**Full guide:** [Tool](/ai-native/tool) ·
+[Tool-Calling](/ai-native/tool-calling)
+
+### `memory`, `persistent`
+
+**Syntax:** `"persistent"? "memory" NAME [":" STRING]`
+
+A key/value store distinct from an ordinary variable — `recall()` on a
+missing key returns `nil` rather than raising, unlike a bare undefined
+variable. Plain `memory` is an in-process dict, gone when the run ends.
+`persistent memory` swaps that for a durable, versioned SQLite-backed log
+(the optional string becomes a file path instead of a category hint) —
+`remember`/`forget` always insert a new row rather than overwriting, so
+`history(key)`/`as_of(key, version)` come for free.
+
+**Use it when:** plain `memory` for anything scoped to one run; add
+`persistent` the moment you need the data to survive past this process,
+or you want to see how a value changed over time.
+
+```sns
+persistent memory ledger
+ledger.remember("name", "ada")
+ledger.remember("name", "ada lovelace")
+print(ledger.recall("name"))   # "ada lovelace"
+print(ledger.as_of("name", 1)) # "ada"
+```
+
+**Full guide:** [Memory](/ai-native/memory)
+
+## Testing
+
+### `test`
+
+**Syntax:** `"test" STRING : block`
+
+An isolated, individually-reported assertion block. A failure inside one
+`test` block (via `assert(...)`) is recorded, not raised — it doesn't
+stop its siblings or the rest of the file.
+
+**Use it when:** anywhere you'd write a unit test. Run a whole file or
+directory with `sense test <path>`, which discovers `test_*.sns`/
+`*_test.sns` files and reports PASS/FAIL per block.
+
+```sns
+def square(x) -> Int:
+    return x * x
+
+test "square of a positive number":
+    assert(square(3) == 9)
+```
+
+**Full guide:** [Testing](/language/testing)
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Grammar reference" icon="diagram-project" href="/reference/grammar">
+    The complete EBNF these entries are drawn from.
+  </Card>
+  <Card title="Builtins reference" icon="function" href="/reference/builtins">
+    Every built-in function and member, not just keywords.
+  </Card>
+  <Card title="Examples" icon="flask" href="/examples">
+    Every keyword above, in complete runnable programs.
+  </Card>
+  <Card title="Errors reference" icon="triangle-exclamation" href="/reference/errors">
+    What each keyword's checks raise when they fail.
+  </Card>
+</CardGroup>

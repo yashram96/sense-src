@@ -1,0 +1,39 @@
+# A real model provider: `inference("anthropic", ...)`.
+#
+# Same `ask()`/`Answer` surface as ask_basics.sns -- the runtime decides
+# how reasoning is implemented, so switching from inference("mock", ...)
+# to a real provider needs no other code change.
+# `inference(...)` is the one function for every real provider (see
+# examples/real_model_openai_basics.sns for the identical shape with
+# "openai" instead) -- not a separate `anthropic_model(...)` to learn.
+#
+# Requires a real ANTHROPIC_API_KEY (this makes a real, costed network
+# call) -- this example checks for it first and skips gracefully if it's
+# not set, so it stays runnable (and free) in CI/offline.
+
+import python "os" as os
+
+if os.environ.get("ANTHROPIC_API_KEY") == nil:
+    print("skip: set ANTHROPIC_API_KEY to run this example")
+else:
+    # `model claude = ...` -- the declaration names it; inference() itself
+    # takes no separate name argument. temperature:/max_tokens: are
+    # optional labeled arguments, forwarded to the real API call (not
+    # just accepted and ignored) -- omit either to use the provider's own
+    # default.
+    model claude = inference("anthropic", "claude-sonnet-5", temperature: 0.3, max_tokens: 300)
+
+    # A real call costs money and sends prompt data to a third party --
+    # that's exactly why it's capability-gated, unlike inference("mock", ...).
+    # This policy is optional: with no policy at all, the call is allowed by
+    # default, same as `tool`/`action`.
+    policy: allow model.anthropic
+
+    set delegation = claude
+    result = ask("in one short sentence, why might someone want an AI-native programming language?")
+
+    print(result.value)
+    print(result.confidence)  # nil -- no fabricated confidence, unlike inference("mock", ...)
+
+    for line in audit_log():
+        print(line)  # the real call is recorded, unlike a mock one

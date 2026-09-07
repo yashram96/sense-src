@@ -1,0 +1,43 @@
+# `connect_mcp(name, command, args, capability?)` -- connecting to an
+# external MCP server for tools a real model can invoke. The genuinely
+# new piece here: an MCP tool has no Sense body at all -- invoking one is
+# a JSON-RPC call to an external process, not local Sense code.
+#
+# Demonstrated against this repo's own tiny test MCP server
+# (tests/mcp_test_server.py, a real server, not a mock) so this example
+# is runnable without Node.js/npx -- in real usage you'd point `command`/
+# `args` at a real MCP server package instead (many are `npx`-based).
+#
+# Requires a real ANTHROPIC_API_KEY (this makes real, costed network
+# calls) and the optional `mcp` package (`pip install sense-lang[mcp]`).
+# Sense has no exception handling, so there's no graceful way to detect
+# "the mcp package isn't installed" from inside a Sense program -- this
+# example can only guard on the one thing it *can* check before calling
+# anything: the API key. Run it with a key set but without `mcp`
+# installed, and connect_mcp() raises a plain, uncaught SenseRuntimeError
+# -- the same limitation `inference("anthropic", ...)` already has for
+# its own optional dependency.
+
+import python "os" as os
+import python "sys" as sys
+
+if os.environ.get("ANTHROPIC_API_KEY") == nil:
+    print("skip: set ANTHROPIC_API_KEY to run this example")
+else:
+    server = connect_mcp("calc", sys.executable, ["tests/mcp_test_server.py"], "mcp.calc")
+
+    policy: allow mcp.calc
+
+    model claude = inference("anthropic")
+    set delegation = claude
+
+    # The model sees this real server's own tool schemas and descriptions
+    # -- discovered at connect_mcp() time, not written anywhere in this
+    # Sense source -- and decides whether/how to call them.
+    result = ask_with_tools("what is 17 plus 25?", server.tools)
+    print(result.value)
+
+    for line in audit_log():
+        print(line)
+
+    server.close()

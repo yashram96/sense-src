@@ -1,0 +1,48 @@
+# A shared ops library -- written once (by a platform/SRE team, in a real
+# org), imported by whatever incident-response automation needs it. Same
+# pattern as examples/policy_library.sns: every tool/action here names the
+# capability it needs via `requires`, but declares no `policy` of its own
+# -- what's actually *allowed* is entirely up to whoever imports this and
+# in what context, not this file's business. See main.sns for why that
+# matters once the same two calls run under two different incidents.
+#
+# `service_status` is a tiny simulated world (which services are healthy
+# right now), not a call to a real monitoring system -- kept in a `memory`
+# so `check_service_health` and `restart_service` genuinely read/write
+# shared state instead of returning canned strings, without needing a real
+# external dependency for this example to be honest about what it does.
+
+memory service_status: "simulated live health, keyed by service name"
+
+service_status.remember("checkout-api", "degraded")
+service_status.remember("payments-api", "degraded")
+service_status.remember("auth-service", "disk_full")
+
+tool check_service_health(service: String) returns String requires monitoring.read "check a service's current live health status":
+    status = service_status.recall(service)
+    if status == nil:
+        return "unknown"
+    # payments-api's real problem is a saturated connection pool, not
+    # something a plain process restart actually clears -- that's only
+    # discoverable by checking again *after* trying the standard fix,
+    # which is exactly what justifies main.sns's rollback later.
+    if service == "payments-api":
+        return "degraded"
+    return status
+
+tool lookup_runbook(issue: String) returns String requires monitoring.read "look up the standard remediation runbook for a known issue type":
+    if issue == "high_latency" or issue == "degraded":
+        return "restart the service process; re-check health afterward"
+    if issue == "disk_full":
+        return "do not auto-remediate -- disk-full needs a human to decide what's safe to delete; escalate"
+    return "no known runbook for this issue -- escalate"
+
+reversible action restart_service(service: String) requires ops.remediate:
+    print("  -> restarting " + service)
+    service_status.remember(service, "healthy")
+rollback:
+    print("  -> restart didn't actually clear it -- reverting " + service + "'s recorded status")
+    service_status.remember(service, "degraded")
+
+irreversible action page_oncall(engineer: String, message: String) requires paging.send, approval:
+    print("  -> paging " + engineer + ": " + message)

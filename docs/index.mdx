@@ -1,0 +1,91 @@
+---
+title: Introduction
+description: "A programming language for AI-native software — where model calls, permissions, and safe side effects are built into the language, not bolted on."
+---
+
+## What Sense is
+
+Every AI app today wires the same things together by hand: an LLM SDK, a
+permissions layer, a "did this actually run yet" tracker, an approval
+workflow. Sense builds those into the language itself:
+
+```sns
+model reasoning = inference("mock", "demo")
+set delegation = reasoning
+
+result = ask("what should we do about the outage?")
+print(result.value)        # the answer
+print(result.confidence)   # how sure the model was -- never silently assumed
+```
+
+No SDK client, no separate "confidence" convention to remember, no network
+call — `inference("mock", ...)` runs fully offline. Compare that to wiring
+it up by hand:
+
+```python
+response = openai.ChatCompletion.create(model="gpt-4", messages=[...])
+answer = response.choices[0].message.content
+# confidence? gone. anything stopping this from doing something
+# dangerous with the answer? nothing -- that's on you to add.
+```
+
+## Four rules, enforced by the runtime — not by convention
+
+<CardGroup cols={2}>
+  <Card title="A model's answer is never a plain value" icon="circle-question">
+    `ask(...)` returns an `Answer`, not a string. You must write
+    `.value` to use it. There's no way to accidentally treat a guess as a
+    fact — the language won't let the two look the same.
+  </Card>
+  <Card title="Calling an action never does the thing" icon="hand">
+    `send_mail(...)` returns an unsent request, not a sent email. Only
+    `.commit()`, after `.verify()`, is allowed to touch the outside world.
+  </Card>
+  <Card title="Permissions are scoped like a variable" icon="shield-check">
+    `policy: deny payment.execute` blocks a real call at the language
+    level — inherited by nested code, gone once you leave that scope. No
+    middleware.
+  </Card>
+  <Card title="An agent can pause and resume" icon="pause">
+    `agent` is a real runtime entity with state you can inspect. It can
+    suspend itself mid-task — waiting on a human, say — and pick back up
+    exactly where it left off.
+  </Card>
+</CardGroup>
+
+## Read like plain code, not a C-family reskin
+
+```sns
+def fib(n) -> Int:
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+```
+
+No braces, no semicolons, no `let`. Indentation is the block syntax;
+`and`/`or`/`not` instead of symbols. That's a complete, typed, recursive
+function — nothing here beyond what the logic needs.
+
+## Start here
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install and run your first program in under two minutes.
+  </Card>
+  <Card title="Tutorials" icon="graduation-cap" href="/tutorials/ask-a-model">
+    Three short, hands-on walkthroughs — ask a model, build a safe
+    action, build a pausable agent.
+  </Card>
+  <Card title="Which keyword do I want?" icon="list-check" href="/reference/keywords#which-keyword-do-i-want">
+    A one-page decision guide: `def` vs `tool` vs `action` vs `agent`,
+    settled in one glance.
+  </Card>
+  <Card title="Roadmap" icon="map" href="/roadmap">
+    What's built, what isn't, tracked honestly and kept current.
+  </Card>
+</CardGroup>
+
+Sense is a real, running interpreter (Python, tree-walking) — not a
+design document. Every example on this site is offline unless it says
+otherwise, by picking `inference("mock", ...)` as its provider; none
+need an API key to try.

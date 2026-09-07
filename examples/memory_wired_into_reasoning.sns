@@ -1,0 +1,48 @@
+# Memory wired into reasoning: retrieval-into-prompt + write-back.
+#
+# Retrieval has one small, new builtin: ask_with_memory(prompt, memory)
+# injects the memory's entire current contents as context ahead of the
+# prompt -- works with inference("mock", ...) too, since it's just string
+# composition ahead of an ordinary ask() call.
+#
+# Write-back needed no new interpreter feature at all: it already composes
+# out of `memory` + a small `tool` wrapper + ask_with_tools -- the
+# model decides what's worth remembering, capability-gated and audited
+# exactly like any other tool call.
+
+memory profile
+profile.remember("favorite_color", "blue")
+
+model demo_model = inference("mock", "demo", response_template: "Given what you told me, {prompt}")
+set delegation = demo_model
+
+# -- retrieval: the model sees the memory's contents without any tool call
+answer = ask_with_memory("what is my favorite color?", profile)
+print(answer.value)
+
+# -- write-back: only meaningful with a real, tool-calling-capable model,
+# so this half is guarded the same way real_model_basics.sns is.
+import python "os" as os
+
+if os.environ.get("ANTHROPIC_API_KEY") == nil:
+    print("skip: set ANTHROPIC_API_KEY to run the write-back half of this example")
+else:
+    tool remember_fact(key: String, value: String) returns String "remember a fact about the user for later":
+        profile.remember(key, value)
+        return "ok"
+
+    tool recall_fact(key: String) returns String "recall a previously remembered fact about the user":
+        result = profile.recall(key)
+        if result == nil:
+            return "(unknown)"
+        return result
+
+    model claude = inference("anthropic")
+    set delegation = claude
+
+    prompt = "remember that my favorite food is sushi, then tell me my favorite color and favorite food"
+    result = ask_with_tools(prompt, [remember_fact, recall_fact])
+    print(result.value)
+
+    # Genuinely persisted -- readable back without any model involved.
+    print(profile.recall("favorite_food"))

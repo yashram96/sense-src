@@ -1,0 +1,31 @@
+# Phase 3: session (scoped execution/context boundary) and agent (a real
+# runtime entity: identity, persistent state, a partial lifecycle).
+
+model outer_model = inference("mock", "outer", response_template: "outer says: {prompt}")
+set delegation = outer_model
+
+# A session is NOT an autonomous actor -- it's just a scope. Delegation set
+# inside it does not leak back out once the session ends.
+session researcher:
+    model inner_model = inference("mock", "inner", response_template: "inner says: {prompt}")
+    set delegation = inner_model
+    print(ask("best database?").value)
+
+print(ask("still outer?").value)
+
+# An agent IS a runtime entity: declaring it only reaches "created" -- its
+# body does not run until start(agent) is called.
+agent analyst:
+    goal: String = "summarize the findings"
+    set delegation = outer_model
+    finding = ask(goal)
+    print("analyst: " + finding.value)
+
+print(analyst.status)
+start(analyst)
+print(analyst.status)
+print(analyst.goal)
+
+# Starting an already-completed agent is an error -- there's no pause/
+# resume or re-run yet.
+# start(analyst)  # would raise: already been started

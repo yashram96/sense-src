@@ -1,0 +1,347 @@
+---
+title: Builtins Reference
+description: Every built-in function and member, with exact signatures and behavior.
+---
+
+## Core
+
+<ResponseField name="print(...)" type="Nil">
+  Variadic. Stringifies each argument and writes a space-joined line to
+  stdout.
+</ResponseField>
+
+<ResponseField name="len(x)" type="Int">
+  Length of a `String` or `Array`. Anything else is a `SenseRuntimeError`.
+</ResponseField>
+
+<ResponseField name="range(a)" type="Array<Int>">
+  Also `range(a, b)` and `range(a, b, step)` — same semantics as Python's
+  `range`, materialized eagerly into an array (there's no lazy iterator
+  type yet).
+</ResponseField>
+
+<ResponseField name="str(x)" type="String">
+  Same conversion `print` uses internally — the canonical stringification
+  of any value.
+</ResponseField>
+
+<ResponseField name="int(x)" type="Int">
+  Converts a `String` or number to `Int`. Raises `SenseRuntimeError` on an
+  unconvertible value.
+</ResponseField>
+
+<ResponseField name="float(x)" type="Float">
+  Converts a `String` or number to `Float`. Raises `SenseRuntimeError` on
+  an unconvertible value.
+</ResponseField>
+
+<ResponseField name="type_of(x)" type="String">
+  Returns the runtime type name: `"Int"`, `"Float"`, `"String"`, `"Bool"`,
+  `"Nil"`, `"Array"`, `"Function"`, `"Module"`, `"Model"`, `"Answer"`,
+  `"Agent"`, `"Action"`, `"Tool"` (a `tool` value *or* a remote tool from
+  `connect_mcp`), `"Memory"`, `"Skill"`, `"McpServer"`,
+  `"Future"` (from calling an `async tool`), or `"Python"` (a value from
+  [`import python`](/language/python-interop)).
+</ResponseField>
+
+<ResponseField name="push(array, x)" type="Array">
+  Appends `x` to `array` in place and returns the same array.
+</ResponseField>
+
+<ResponseField name="assert(cond, msg?)" type="Nil">
+  Raises `SenseRuntimeError` with `msg` (default `"assertion failed"`) if
+  `cond` is falsy.
+</ResponseField>
+
+## Model / Ask / Answer
+
+See [Model, Ask & Answer](/ai-native/model-ask-answer) for the full
+picture.
+
+<ResponseField name="inference(provider, model_id?, ...)" type="Model">
+  One function for every provider, real or offline — `provider` is
+  `"anthropic"`, `"openai"`, or `"mock"`.
+
+  For `"anthropic"`/`"openai"`: `model_id` defaults per provider
+  (`"claude-sonnet-5"` / `"gpt-4o"`). Optional labeled arguments after the
+  positional ones: `temperature:` (Float), `max_tokens:` (Int),
+  `api_key_env:` (String, defaults to `"ANTHROPIC_API_KEY"`/
+  `"OPENAI_API_KEY"`) — the environment variable read for the key (never
+  a literal in Sense source). `max_tokens:` is the one label to write for
+  either provider; OpenAI's newer models reject the older `max_tokens`
+  wire parameter outright, so `OpenAIProvider` sends it as
+  `max_completion_tokens` instead — invisible to Sense source either way.
+  Raises `SenseRuntimeError` immediately if
+  that variable isn't set. Requires the matching optional package
+  (`pip install sense-lang[anthropic]` / `[openai]`).
+
+  For `"mock"`: no API key, no network, deterministic. Its second
+  positional argument is the name itself (defaults to `"mock"`) rather
+  than a vendor `model_id`. Optional labeled arguments:
+  `response_template:` (String, defaults to
+  `"(mock reasoning about: {prompt})"`, with `{prompt}` substituted from
+  the argument passed to `ask(...)`) and `confidence:` (Float, defaults
+  to `0.5`). Raises `SenseRuntimeError` if given `temperature:`/
+  `max_tokens:`/`api_key_env:`, the same way a real provider raises if
+  given `response_template:`/`confidence:`.
+
+  No separate `name` argument for real providers — pair with
+  [`model NAME = ...`](#model-name-expr) to name one, or the `model_id`
+  itself is used as a default name. Raises `SenseRuntimeError` if
+  `provider` isn't recognized.
+</ResponseField>
+
+<ResponseField name="model NAME = expr" type="statement">
+  Not a function call — a real declaration keyword. Evaluates `expr`,
+  checks it's actually a `Model` (`SenseTypeError` otherwise), binds
+  `NAME`, and sets the model's own `.name` to `NAME` (overriding whatever
+  the expression's value carried). `model x = 5` raises before `x` is
+  bound. Required, not optional: a plain `x = inference(...)` is a
+  `SenseSyntaxError` — `set delegation = inference(...)` and any other
+  use of the value (a bare expression, `.name` chained straight off the
+  call) are unaffected, since neither is naming a variable.
+</ResponseField>
+
+<ResponseField name="ask(prompt)" type="Answer">
+  Uses whichever `Model` the current scope is delegated to (via
+  `set delegation = ...`). Raises `SenseRuntimeError` if none is
+  configured anywhere in the enclosing scope chain. If the delegated
+  model's provider declares a `capability` (real providers do;
+  `inference("mock", ...)` doesn't), checks it against the caller's policy scope first — raises
+  `SensePolicyError` on denial, before any network call.
+</ResponseField>
+
+<ResponseField name="<model>.ask(prompt)" type="Answer">
+  Member access, not a top-level builtin — asks that specific `Model`
+  directly, bypassing delegation entirely. Capability-gated the same way
+  `ask(prompt)` is.
+</ResponseField>
+
+<ResponseField name="ask_with_memory(prompt, memory)" type="Answer">
+  `memory` is a `Memory` value (session or persistent — both expose the
+  same shape). Its entire current contents are injected ahead of `prompt`
+  as context (an empty memory leaves the prompt untouched), then handled
+  exactly like `ask(prompt)` — same capability gate for a real
+  provider, works with `inference("mock", ...)` too since this is plain
+  string composition, not a tool-calling protocol. Raises `SenseRuntimeError` if
+  `memory` isn't a `Memory` value. See
+  [Memory: reasoning with memory](/ai-native/memory#reasoning-with-memory-ask_with_memory).
+</ResponseField>
+
+<ResponseField name="ask_with_tools(prompt, tools)" type="Answer">
+  `tools` is an `Array` of `tool` and/or `Skill` values (never a bare
+  `fn`; an `async tool` raises `SenseRuntimeError`); every tool, bare or
+  inside a skill, requires a description (added to the `tool` declaration
+  as a trailing string) to be exposed to the model. A `Skill` flattens
+  into its component tools and its description is prepended to the
+  prompt; a tool name repeated across the given tools/skills raises
+  `SenseRuntimeError`. Capability-gated the same way `ask(prompt)` is,
+  checked before anything else. Loops (capped at 10 iterations) between
+  the model and the tools it requests — each requested call runs through
+  the exact same path a hand-written call reaches
+  (arity/capability/type-check/audit); a denial is fed back to the model
+  as the tool result, not re-raised. Raises `SenseRuntimeError` if the
+  delegated model's provider doesn't implement tool-calling
+  (`inference("mock", ...)`'s doesn't). See
+  [Tool-Calling](/ai-native/tool-calling).
+</ResponseField>
+
+<ResponseField name="skill(name, description, tools)" type="Skill">
+  `tools` must be a non-empty `Array` of `tool` values, each already
+  satisfying `ask_with_tools`'s own requirements (not async, has a
+  description) — checked here, at `skill(...)` call time, for the
+  earliest possible error. No dedicated keyword, same reasoning as why
+  there's no `model` keyword — the runtime type carries the meaning
+  wherever it's checked. See
+  [Skills](/ai-native/skills).
+</ResponseField>
+
+<ResponseField name="connect_mcp(name, command, args, capability?)" type="McpServer">
+  Spawns `command args` as a subprocess over MCP's stdio transport,
+  performs the handshake, and discovers its tools. `capability`
+  (optional) gates every tool on the connection, checked at each
+  individual call. Requires the optional `mcp` package (`pip install
+  sense-lang[mcp]`). Raises `SenseRuntimeError` if the process can't be
+  spawned or the handshake fails (with a 30s timeout) — never hangs
+  indefinitely. See
+  [MCP](/ai-native/mcp).
+</ResponseField>
+
+## Agents
+
+See [Agents](/ai-native/agents) and [Pause & Resume](/ai-native/pause-resume).
+
+<ResponseField name="start(agent)" type="Agent">
+  Runs the agent's body (on its own thread). For a plain (sync) `agent`,
+  blocks the caller until it pauses, completes, or fails, then returns the
+  agent, re-raising the body's error on the calling thread if it failed.
+  For an `async agent`, returns immediately instead — the body keeps
+  running concurrently; use `await(agent)` to get the same blocking result
+  later. Requires `status == "created"`.
+</ResponseField>
+
+<ResponseField name="pause(reason?)" type="Any">
+  Callable only from inside a currently-running agent's own body. Suspends
+  it; `reason`, if given, becomes `agent.pause_reason`. Returns whatever
+  the `resume(agent, value?)` call that wakes it up passes as `value`
+  (`nil` if none was given). Behavior is identical for sync and async
+  agents — only whether the *caller* of `start()`/`resume()` blocks differs.
+</ResponseField>
+
+<ResponseField name="resume(agent, value?)" type="Agent">
+  Continues a paused agent from exactly where it left off. For a sync
+  agent, blocks the caller until it pauses again, completes, or fails; for
+  an `async` agent, returns immediately (use `await(agent)` for the
+  result). Requires `status == "paused"`. `value`, if given, becomes that
+  agent's `pause()` call's return value.
+</ResponseField>
+
+<ResponseField name="send(agent, message)" type="Nil">
+  Puts `message` on `agent`'s mailbox (a thread-safe FIFO queue that exists
+  from the moment `agent name: ...` is declared). Never blocks; works from
+  anywhere — top-level code, another agent's body, even before the target
+  has been `start()`-ed. Raises if `agent` isn't an `Agent`.
+</ResponseField>
+
+<ResponseField name="receive(timeout?)" type="Any">
+  Callable only from inside a currently-running agent's own body. Blocks
+  that agent's own thread until a message arrives on its mailbox, or —
+  with an optional `timeout` in seconds — returns `nil` once it elapses
+  instead. Messages are delivered in the order they were sent, even with
+  several concurrent senders.
+</ResponseField>
+
+<ResponseField name="ask_human(question)" type="Any">
+  Inside a running agent: equivalent to `pause(question)` — suspends the
+  agent, sets `pause_reason` to `question`, and returns whatever
+  `resume(agent, answer)` provides. Outside any agent: prints `question`
+  and reads a real line from stdin, returning it as a `String`.
+</ResponseField>
+
+<ResponseField name="await(x)" type="Any">
+  `x` must be an `Agent` or a `Future`. For an `Agent`: blocks until it
+  settles (a no-op if it already has — including any sync agent, which is
+  always already settled by the time `start()`/`resume()` return), then
+  returns it, re-raising its error if it failed. For a `Future` (from
+  calling an `async tool`): blocks until the body finishes, then returns
+  its value or re-raises its error. See
+  [Agents#concurrency](/ai-native/agents#concurrency-async-agent) and
+  [Tool#concurrency](/ai-native/tool#concurrency-async-tool).
+</ResponseField>
+
+## Actions
+
+See [Actions](/safety/actions).
+
+<ResponseField name="<action>.verify()" type="Action">
+  Member access, not a top-level function — same as every step below.
+  These used to be free functions taking the action as an argument
+  (`verify(action)`, etc.); `<action>.commit()` was always a method, so
+  the rest moved to match it — one calling convention, not a mix. Requires
+  `state == "prepared"`. Checks the action's `requires` capability against
+  policy (raises `SensePolicyError` if denied). Advances state to
+  `"verified"` (or `"denied"`).
+</ResponseField>
+
+<ResponseField name="<action>.commit()" type="Any">
+  Requires `state == "verified"`. Re-checks the capability independently
+  of `.verify()`, and — if the action declares `requires approval` —
+  requires `approved == true` (raises `SenseApprovalError` otherwise).
+  Then runs the action's body and returns whatever it `return`s. Advances
+  state to `"committed"` (or `"failed"`/`"denied"`).
+</ResponseField>
+
+<ResponseField name="<action>.approve()" type="Action">
+  Sets `action.approved = true`. Requires `state` to be `"prepared"` or
+  `"verified"`. Only meaningful for an action declared with `requires
+  approval`, but harmless to call on any action.
+</ResponseField>
+
+<ResponseField name="audit_log()" type="Array<String>">
+  A simplified, human-readable line per prepare/verify/commit/deny/fail/
+  rolled_back/called event across every action, tool, or capability-gated
+  model call (e.g. `inference("anthropic", ...)`; `inference("mock", ...)`
+  calls are never audited) in this `Interpreter`, in order. In-memory only — see
+  [Actions](/safety/actions#audit-log).
+</ResponseField>
+
+<ResponseField name="<action>.rollback()" type="Any">
+  Runs a `reversible action`'s `rollback` block, nested inside the exact
+  scope `.commit()`'s body ran in — sees the original args and any local
+  variable the commit body itself computed. Requires
+  `action.kind == "reversible"` (a
+  `rollback` block is mandatory on one, so that's all that's needed) and
+  `state == "committed"`. Re-checks the capability the same way
+  `.commit()` does; a denial leaves state at
+  `"committed"`. Advances state to `"rolled_back"` on success. See
+  [Rollback](/safety/actions#rollback-undoing-a-committed-action).
+</ResponseField>
+
+## Tools
+
+See [Tool](/ai-native/tool).
+
+<ResponseField name="tool" type="Tool">
+  Not a builtin function — a declaration keyword, like `fn`/`action`.
+  Calling a `Tool` value runs its body immediately (no lifecycle); if it
+  declares `requires <capability>`, the call is checked against the
+  caller's policy scope first, raising `SensePolicyError` on denial. An
+  `async tool` runs its body on its own thread instead and returns a
+  `Future` immediately — see `await(x)` under [Agents](#agents) above.
+</ResponseField>
+
+## Member access reference
+
+<AccordionGroup>
+  <Accordion title="Answer">
+    `.value`, `.confidence`, `.source`
+  </Accordion>
+  <Accordion title="Model">
+    `.ask(prompt)`
+  </Accordion>
+  <Accordion title="Agent">
+    `.status`, `.name`, `.pause_reason`, `.doc` (its docstring, `nil` if it
+    doesn't have one — see [Functions#docstrings](/language/functions)),
+    plus any variable the body set in its own scope (e.g. `agent.goal` if
+    the body did `goal: String = ...`)
+  </Accordion>
+  <Accordion title="Action">
+    `.state`, `.name`, `.kind`, `.approved`, `.commit()`
+  </Accordion>
+  <Accordion title="Memory">
+    Session: `.name`, `.kind`, `.remember(key, value)`, `.recall(key)`,
+    `.forget(key)`, `.keys()`. Persistent (`persistent memory`, in place of
+    `.kind`): `.path`, plus `.history(key)` (`Array<String>`, one line per
+    version) and `.as_of(key, version)` (time travel) — see
+    [Memory](/ai-native/memory)
+  </Accordion>
+  <Accordion title="Skill">
+    `.name`, `.description`, `.tools` — see [Skills](/ai-native/skills)
+  </Accordion>
+  <Accordion title="McpServer">
+    `.name`, `.tools` (`Array<Tool>`), `.close()` — see [MCP](/ai-native/mcp)
+  </Accordion>
+  <Accordion title="Future">
+    `.done` — a non-blocking poll (`true`/`false`); use `await(future)` to
+    get the actual value — see [Tool](/ai-native/tool)
+  </Accordion>
+  <Accordion title="Module">
+    Any top-level binding from the imported file — see
+    [Modules](/language/modules)
+  </Accordion>
+  <Accordion title="Python">
+    Any attribute or method of the wrapped Python object, delegated
+    straight through — see [Python Interop](/language/python-interop)
+  </Accordion>
+</AccordionGroup>
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Error reference" icon="triangle-exclamation" href="/reference/errors">
+    What each builtin raises, and when.
+  </Card>
+  <Card title="Grammar reference" icon="terminal" href="/reference/grammar">
+    The full EBNF these builtins are called from.
+  </Card>
+</CardGroup>

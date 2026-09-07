@@ -1,0 +1,9 @@
+# A module: importers see its top-level bindings as members.
+
+def square(x) -> Int:
+    return x * x
+
+def add(a, b) -> Int:
+    return a + b
+
+pi = 3.14159

@@ -1,0 +1,21 @@
+# Agent pause/resume: an agent can suspend itself mid-body (e.g. to wait for
+# human approval) and be resumed later, continuing exactly where it left
+# off -- local variables and all.
+
+agent approver:
+    print("checking the request")
+    amount = 5000
+    pause("needs approval for amount over 1000: " + str(amount))
+    print("approved -- proceeding")
+    print("charging " + str(amount))
+
+print(approver.status)  # "created" -- nothing has run yet
+
+start(approver)
+print(approver.status)  # "paused"
+print(approver.pause_reason)
+
+# ... elsewhere, e.g. a human reviews and approves ...
+
+resume(approver)
+print(approver.status)  # "completed"

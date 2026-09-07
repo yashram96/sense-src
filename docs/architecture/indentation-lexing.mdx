@@ -1,0 +1,114 @@
+---
+title: Indentation-Sensitive Lexing
+description: How the lexer turns leading whitespace into clean INDENT/DEDENT tokens, the same technique Python's own tokenizer uses.
+---
+
+## The problem
+
+A recursive-descent parser wants clean tokens — it shouldn't have to
+reason about columns or whitespace itself. But Sense's blocks are defined
+by indentation, not delimiters. The lexer's job is to absorb that
+complexity entirely, so the parser can treat a block exactly like it would
+treat a brace-delimited one, just with `INDENT`/`DEDENT` standing in for
+`{`/`}` and `NEWLINE` standing in for the statement terminator.
+
+## The algorithm
+
+The lexer keeps an explicit indentation stack, starting at `[0]`, and a
+`paren_depth` counter:
+
+<Steps>
+  <Step title="At the start of each logical line (paren_depth == 0)">
+    Measure the run of leading spaces (a leading tab is a
+    `SenseSyntaxError` — Sense follows Python 3's lead in simply
+    disallowing tabs for indentation rather than trying to reconcile
+    tab-width assumptions). Blank lines and comment-only lines are skipped
+    entirely — they never affect the indentation stack.
+  </Step>
+  <Step title="Compare the new indentation to the top of the stack">
+    Greater → push it, emit `INDENT`. Equal → emit nothing. Less → pop
+    until the stack top matches, emitting one `DEDENT` per pop; if it
+    never matches exactly, raise `SenseSyntaxError("inconsistent
+    indentation")`.
+  </Step>
+  <Step title="At an actual newline character, if paren_depth == 0">
+    If the line had any real tokens on it, emit `NEWLINE`. (A "blank line"
+    never gets this far — it was already absorbed in step 1.)
+  </Step>
+  <Step title="Inside ( ) or [ ], suppress all of the above">
+    `paren_depth` increments on `(`/`[` and decrements on `)`/`]`. While
+    it's greater than zero, newlines are just whitespace — no `NEWLINE`
+    token, no indentation processing — which is what lets a call or array
+    literal wrap across lines:
+    ```sns
+    print(
+        "a",
+        "b",
+    )
+    ```
+  </Step>
+  <Step title="At end of file">
+    If the last line had tokens but no trailing newline character, synthesize
+    one `NEWLINE`. Then pop the indentation stack all the way back to
+    `[0]`, emitting a `DEDENT` for each remaining level, before the final
+    `EOF` token.
+  </Step>
+</Steps>
+
+## Why this lives entirely in the lexer
+
+The parser never sees raw whitespace or column numbers — only
+`NEWLINE`/`INDENT`/`DEDENT` tokens, interleaved with ordinary content
+tokens exactly the way `{`/`}`/`;` would be in a brace-delimited grammar.
+`Parser._block()` reads almost identically to how it would if Sense used
+braces:
+
+```python
+def _block(self):
+    self._expect(COLON, "expected ':' to start a block")
+    if self._match(NEWLINE):
+        self._expect(INDENT, "expected an indented block")
+        statements = []
+        while not self._check(DEDENT):
+            statements.append(self._statement())
+        self._expect(DEDENT, "expected the indented block to end")
+    else:
+        # inline form: `if x: return y`
+        statements = [self._statement()]
+    return Block(statements)
+```
+
+Keeping the whitespace-sensitivity fully contained in the lexer is what
+makes the *parser* itself unremarkable — a completely ordinary
+recursive-descent parser, with none of the complexity indentation-
+sensitivity might suggest leaking into how statements and expressions are
+actually parsed.
+
+## Deliberate, helpful lexer errors
+
+A few characters get a specific error instead of falling through to a
+generic "unexpected character," aimed at people (and LLMs) whose habits
+default to brace-delimited languages:
+
+```txt
+if true {              # SenseSyntaxError:
+                        # "Sense uses indentation for blocks, not '{ }' —
+                        #  write ':' then an indented block instead"
+
+x = 1;                  # SenseSyntaxError:
+                        # "semicolons aren't used in Sense — start a new
+                        #  line instead"
+```
+
+See [Error Reference](/reference/errors) for the complete list.
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Interpreter pipeline" icon="route" href="/architecture/pipeline">
+    Where the lexer fits in the larger picture.
+  </Card>
+  <Card title="Grammar reference" icon="terminal" href="/reference/grammar">
+    The full grammar these tokens feed into.
+  </Card>
+</CardGroup>

@@ -1,0 +1,242 @@
+---
+title: Agents
+description: A genuine runtime entity — identity, persistent state, and a real lifecycle — not sugar over a function call.
+---
+
+## Declaring one doesn't run it
+
+```sns
+agent researcher:
+    goal: String = "find the best database"
+    model reasoning = inference("mock", "demo")
+    set delegation = reasoning
+    finding = ask(goal)
+    print("researcher: " + finding.value)
+
+print(researcher.status)   # "created" -- nothing has run yet
+```
+
+This is the key difference from a plain function or a
+[session](/ai-native/sessions): `agent name: ...` **declares** an entity.
+The interpreter creates a `SenseAgent` — identity (`name`), a persistent
+scope (`env`, a child of the declaring scope, so the body closes over its
+surroundings the same way a function does), and `status: "created"` — and
+binds it, same as any other value. Nothing in the body runs yet.
+
+## `start(agent)` runs it
+
+```sns
+start(researcher)
+print(researcher.status)   # "completed"
+print(researcher.goal)      # reads a variable the body set, after it ran
+```
+
+`start(...)` advances status to `"running"`, executes the body, then to
+`"completed"` (or `"failed"` if an unhandled error occurred) — and returns
+the agent. An agent can only be started once from `"created"`; calling
+`start` again is a `SenseRuntimeError`.
+
+## Reading state back out
+
+```sns
+agent analyst:
+    verdict = "approved"
+    score = 87
+
+start(analyst)
+print(analyst.verdict)   # "approved"
+print(analyst.score)      # 87
+```
+
+Member access on a completed (or even paused) agent reads whatever
+variables the body set in its own persistent scope — the exact same
+mechanism a [module](/language/modules)'s `import ... as m; m.some_fn` uses.
+`.status`, `.name`, and `.pause_reason` are reserved fields that always
+refer to the agent itself, taking precedence over a same-named body
+variable.
+
+## Agents close over their declaring scope
+
+```sns
+x = 1
+agent a:
+    x = 2       # mutates the outer x -- same "one assignment rule" as a function body
+    print(x)
+start(a)
+print(x)   # 2
+```
+
+If you want the body's `x` to be genuinely its own, use
+[`local`](/language/variables-and-scope#local-the-explicit-escape-hatch)
+inside it, exactly as you would inside any other block.
+
+## Delegation and policy are scoped like `session`
+
+```sns
+model outer = inference("mock", "outer", response_template: "outer: {prompt}")
+set delegation = outer
+
+agent a:
+    model inner = inference("mock", "inner", response_template: "inner: {prompt}")
+    set delegation = inner
+    print(ask("q").value)   # "inner: q"
+
+start(a)
+print(ask("q").value)       # "outer: q" -- unaffected
+```
+
+See [Sessions](/ai-native/sessions) for exactly how this scoping works —
+`agent` uses the identical mechanism.
+
+## Agents can pause themselves mid-task
+
+```sns
+agent approver:
+    amount = 5000
+    pause("needs approval for amount over 1000")
+    print("charging " + str(amount))
+
+start(approver)
+print(approver.status)          # "paused"
+print(approver.pause_reason)
+
+resume(approver)
+print(approver.status)          # "completed"
+```
+
+This is real: local variables, control-flow position, everything survives
+the pause exactly as written. `resume(agent, value)` can also carry an
+answer back *into* the paused body — which is exactly how
+`ask_human(question)` works, a dedicated human-in-the-loop primitive built
+on the same mechanism. It's substantial enough to have
+[its own page](/ai-native/pause-resume) covering how it works and what it
+doesn't cover yet.
+
+## Concurrency: `async agent`
+
+A plain `agent` (everything above) is always sync: `start()`/`resume()`
+block until the body settles. `async agent` makes that optional — the
+caller and the agent's body (or two `async` agents) can genuinely be
+executing at the same wall-clock time:
+
+```sns
+async agent fetch_a:
+    result = "data from A"
+
+async agent fetch_b:
+    result = "data from B"
+
+start(fetch_a)     # returns immediately -- fetch_a.status == "running"
+start(fetch_b)     # also returns immediately -- both bodies now run concurrently
+
+await(fetch_a)
+await(fetch_b)
+print(fetch_a.result)
+print(fetch_b.result)
+```
+
+<Steps>
+  <Step title="start()/resume() skip their blocking wait">
+    Everything else — `pause()`, resuming with a value, `.status`/
+    `.pause_reason` — is unchanged. Only whether the *caller* blocks
+    differs.
+  </Step>
+  <Step title="await(agent) gets the result when you need it">
+    Blocks (if still `"running"`) until the agent settles, then applies the
+    exact same result-collection logic `start()`/`resume()` already use,
+    including re-raising the body's error on the awaiting thread. `await()`
+    on an already-settled agent — including any *sync* agent, always
+    already settled by the time `start()`/`resume()` return — is a
+    harmless no-op, so it can be used uniformly regardless of sync/async.
+  </Step>
+</Steps>
+
+<Info>
+Concurrency is opt-in, only at the `agent`/[`tool`](/ai-native/tool#concurrency-async-tool)
+boundary — a plain function call is never affected, and never forces a
+caller to become async too ("function coloring," the usual cost of
+async-by-default languages).
+</Info>
+
+<Warning>
+No synchronization primitives exist (no locks, channels, atomics) — two
+`async` bodies mutating the same shared scope or [`memory`](/ai-native/memory)
+concurrently can race, exactly like raw Python threading with no lock. CPU-bound
+Sense code in two async bodies still won't run *simultaneously* either (the
+same GIL constraint any Python threading has) — only I/O-bound work (a
+sleep, a network call via [`import python`](/language/python-interop), a
+model call) actually overlaps.
+</Warning>
+
+## Communication: `send` / `receive`
+
+Two `async agent`s racing on a shared variable is genuinely unsafe — the
+same limitation the concurrency warning above already flags. `send(agent,
+message)` / `receive(timeout?)` give every agent its own mailbox instead,
+a thread-safe FIFO queue that exists from the moment it's declared:
+
+```sns
+async agent worker:
+    task = receive()
+    print("worker got: " + task)
+    send(boss, "done: " + task)
+
+async agent boss:
+    send(worker, "build the report")
+    reply = receive()
+    print("boss got: " + reply)
+
+start(worker)
+start(boss)
+await(worker)
+await(boss)
+```
+
+`send()` never blocks and works from anywhere — top-level code, another
+agent's body, even before the target has started (the message just
+waits). `receive()` blocks the *calling* agent's own thread until a
+message arrives, or returns `nil` once an optional timeout elapses — only
+legal inside a running agent's own body, same lookup `pause()` uses.
+Messages are delivered in send order even with several senders at once,
+`queue.Queue` handling that safely with no new synchronization primitive
+of Sense's own. See the [builtins reference](/reference/builtins#agents)
+for the full signatures, and `examples/agent_communication.sns` in the
+repo for a fuller scenario — a coordinator fanning work out to two
+concurrent workers and collecting both results back.
+
+## What this doesn't cover yet
+
+<AccordionGroup>
+  <Accordion title="Capability/policy enforcement on the whole body">
+    An agent's body can call anything the surrounding scope can, beyond
+    what an individual [`action`](/safety/actions) inside it explicitly
+    `requires`. Full agent-level sandboxing is broader future work.
+  </Accordion>
+  <Accordion title="A true multi-agent scheduler">
+    `async agent` gives real OS-thread concurrency (see above), not a
+    scheduler managing fairness/priority/limits across many agents — each
+    `async` call is just a fresh daemon thread. See
+    [Agent Concurrency Model](/architecture/agent-concurrency) for the
+    mechanism.
+  </Accordion>
+  <Accordion title="Persistence across process restarts">
+    A paused agent's state lives in a live thread's call stack — it can't
+    be serialized to disk and resumed after a restart. That would need a
+    genuinely different execution model (e.g. a step-based/bytecode
+    interpreter with serializable frames).
+  </Accordion>
+  <Accordion title="Budget, evaluation">
+    Not built. Tracked on the [Roadmap](/roadmap).
+  </Accordion>
+</AccordionGroup>
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Pause & resume" icon="pause" href="/ai-native/pause-resume">
+    How genuine suspension works, mechanically.
+  </Card>
+  <Card title="Actions & policy" icon="shield-check" href="/safety/actions">
+    How an agent does something to the outside world safely.
+  </Card>
+</CardGroup>

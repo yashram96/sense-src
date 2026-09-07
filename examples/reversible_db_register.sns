@@ -1,0 +1,42 @@
+# A real reversible action that isn't a file operation: registering a
+# user in a database, with a genuine undo (deprovisioning them) via
+# `rollback`. SQLite here is just storage -- the actual effect being
+# committed/rolled back is "this user now exists in the system" / "that
+# user no longer exists," the same shape as a real signup/unregister flow
+# against a real users table.
+#
+# Try it:
+#   sense run --dry-run examples/reversible_db_register.sns   # preview -- no row ever inserted
+#   sense run examples/reversible_db_register.sns              # really inserts, then really deletes on rollback
+
+import python "sqlite3" as sqlite3
+
+db = sqlite3.connect("users_demo.db")
+db.execute("CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, plan TEXT)")
+db.commit()
+
+reversible action register_user(email: String, plan: String) requires user.register:
+    db.execute("INSERT INTO users (email, plan) VALUES (?, ?)", [email, plan])
+    db.commit()
+    print("registered " + email + " on the " + plan + " plan")
+rollback:
+    db.execute("DELETE FROM users WHERE email = ?", [email])
+    db.commit()
+    print("deprovisioned " + email)
+
+policy:
+    allow user.register
+
+signup = register_user("newuser@example.com", "pro")
+signup.verify()
+signup.commit()
+
+row_count = db.execute("SELECT COUNT(*) FROM users WHERE email = ?", ["newuser@example.com"]).fetchone()[0]
+print("rows right after commit: " + str(row_count))
+
+signup.rollback()
+
+row_count = db.execute("SELECT COUNT(*) FROM users WHERE email = ?", ["newuser@example.com"]).fetchone()[0]
+print("rows after rollback: " + str(row_count))
+
+db.close()

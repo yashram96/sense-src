@@ -1,0 +1,1211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sense Inspector</title>
+<style>
+  :root {
+    --bg: #05070d;
+    --bg-elevated: #0a0e1a;
+    --surface: rgba(255,255,255,0.035);
+    --surface-hover: rgba(255,255,255,0.055);
+    --border: rgba(255,255,255,0.09);
+    --border-strong: rgba(255,255,255,0.16);
+    --fg: #f4f6fb;
+    --muted: #8891a7;
+    --muted-2: #5b6478;
+    --accent: #34d399;
+    --accent-strong: #22c55e;
+    --accent-fg: #04150c;
+    --accent-soft: rgba(52,211,153,0.12);
+    --accent-border: rgba(52,211,153,0.35);
+    --danger: #fb7185;
+    --danger-soft: rgba(251,113,133,0.12);
+    --danger-border: rgba(251,113,133,0.35);
+    --warn: #fbbf24;
+    --warn-soft: rgba(251,191,36,0.12);
+    --warn-border: rgba(251,191,36,0.35);
+    --info: #7dd3fc;
+    --info-soft: rgba(125,211,252,0.12);
+    --radius-lg: 18px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
+    --font-sans: -apple-system, "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui, Roboto, sans-serif;
+    --font-mono: "Cascadia Code", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+    --rail-w: 232px;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  ::selection { background: var(--accent-soft); color: var(--accent); }
+
+  html { color-scheme: dark; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    background-image:
+      radial-gradient(900px 500px at 12% -10%, rgba(52,211,153,0.09), transparent 60%),
+      radial-gradient(700px 420px at 100% 0%, rgba(125,211,252,0.06), transparent 60%);
+    background-attachment: fixed;
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code, .mono { font-family: var(--font-mono); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+
+  a { color: inherit; }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+  .sr-only:focus {
+    position: fixed; top: 12px; left: 12px; z-index: 100;
+    width: auto; height: auto; padding: 10px 16px; margin: 0; clip: auto;
+    background: var(--accent); color: var(--accent-fg); border-radius: var(--radius-sm);
+    font-weight: 600; font-size: 13px;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---------- layout shell ---------- */
+
+  .app { display: flex; min-height: 100vh; }
+
+  .rail {
+    width: var(--rail-w);
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    background: rgba(5,7,13,0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 20px 14px;
+    overflow-y: auto;
+  }
+
+  .rail-brand {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 8px 22px;
+    font-weight: 600; font-size: 15px; letter-spacing: -0.01em;
+  }
+  .rail-brand .logo-mark { flex-shrink: 0; }
+  .rail-brand small { display: block; color: var(--muted-2); font-size: 10.5px; font-weight: 500; font-family: var(--font-mono); letter-spacing: 0.02em; }
+
+  .rail-nav { display: flex; flex-direction: column; gap: 2px; }
+  .rail-link {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px; border-radius: var(--radius-sm);
+    color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: background-color 150ms var(--ease), color 150ms var(--ease);
+    border: 1px solid transparent;
+  }
+  .rail-link svg { flex-shrink: 0; opacity: 0.85; }
+  .rail-link:hover { background: var(--surface-hover); color: var(--fg); }
+  .rail-link.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-border); }
+  .rail-link.active svg { opacity: 1; }
+  .rail-link .count {
+    margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted-2);
+    background: rgba(255,255,255,0.05); padding: 1px 6px; border-radius: 999px;
+  }
+  .rail-link.active .count { color: var(--accent); background: rgba(52,211,153,0.15); }
+
+  .rail-foot { margin-top: auto; padding: 12px 8px 4px; font-size: 11px; color: var(--muted-2); font-family: var(--font-mono); }
+
+  .content { flex: 1; min-width: 0; }
+
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 14px 32px;
+    background: rgba(5,7,13,0.55);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar .path {
+    font-family: var(--font-mono); font-size: 12.5px; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0;
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+    padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border);
+  }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 0 rgba(52,211,153,0.6); animation: pulse-dot 2s infinite; }
+  @keyframes pulse-dot {
+    0% { box-shadow: 0 0 0 0 rgba(52,211,153,0.5); }
+    70% { box-shadow: 0 0 0 6px rgba(52,211,153,0); }
+    100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
+  }
+
+  .dry-run-pill {
+    flex-shrink: 0; font-family: var(--font-mono); font-weight: 600; font-size: 10.5px;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 5px 10px; border-radius: 999px;
+    color: var(--warn); border: 1px solid var(--warn-border); background: var(--warn-soft);
+  }
+  .dry-run-pill[hidden] { display: none; }
+
+  main { max-width: 920px; margin: 0 auto; padding: 8px 32px 100px; }
+
+  section.panel { padding-top: 44px; scroll-margin-top: 20px; }
+  section.panel:first-of-type { padding-top: 36px; }
+
+  .panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .panel-head .icon-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 9px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+  }
+  .panel-head h2 { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .panel-head .panel-count {
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted-2);
+    background: var(--surface); border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px;
+  }
+  .panel-head .view-toggle { margin-left: auto; display: inline-flex; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 2px; }
+  .panel-head .view-toggle button {
+    font: inherit; font-size: 12px; font-family: var(--font-sans); color: var(--muted); background: transparent; border: none;
+    padding: 5px 12px; border-radius: 999px; cursor: pointer; transition: background 150ms var(--ease), color 150ms var(--ease);
+  }
+  .panel-head .view-toggle button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .panel-head .view-toggle button:hover:not(.active) { color: var(--fg); }
+
+  /* ---------- cards ---------- */
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 18px 20px;
+    margin-bottom: 12px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: border-color 200ms var(--ease), transform 200ms var(--ease), box-shadow 200ms var(--ease);
+    animation: rise 320ms var(--ease) backwards;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .card:hover { border-color: var(--border-strong); }
+  .card:last-child { margin-bottom: 0; }
+
+  .card-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .card-title .name { font-family: var(--font-mono); font-weight: 600; font-size: 14.5px; letter-spacing: -0.01em; }
+  .card-desc { color: var(--muted); font-size: 13px; margin: 6px 0 12px; line-height: 1.5; }
+  .card-doc {
+    color: var(--muted); font-size: 12.5px; line-height: 1.55; margin: 0 0 12px;
+    padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    white-space: pre-wrap;
+  }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--font-mono); font-size: 10.5px; font-weight: 500;
+    padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted);
+    white-space: nowrap; background: rgba(255,255,255,0.02);
+  }
+  .badge .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+  .badge.allow, .badge.done, .badge.completed { border-color: var(--accent-border); color: var(--accent); background: var(--accent-soft); }
+  .badge.deny, .badge.failed, .badge.denied { border-color: var(--danger-border); color: var(--danger); background: var(--danger-soft); }
+  .badge.paused, .badge.running, .badge.verified, .badge.prepared { border-color: var(--warn-border); color: var(--warn); background: var(--warn-soft); }
+  .badge.reversible, .badge.irreversible, .badge.skill { color: var(--info); border-color: rgba(125,211,252,0.3); background: var(--info-soft); }
+
+  /* ---------- forms ---------- */
+
+  .params { display: grid; gap: 12px; margin: 14px 0; }
+  .param-row { display: grid; gap: 5px; }
+  .param-row label {
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted-2);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .param-row label .type-hint { color: var(--muted-2); opacity: 0.8; }
+
+  input[type=text], input[type=number], textarea {
+    width: 100%; background: rgba(0,0,0,0.25);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    color: var(--fg); font-family: var(--font-mono); font-size: 13px; padding: 9px 11px;
+    transition: border-color 150ms var(--ease), background-color 150ms var(--ease);
+  }
+  input[type=text]:focus, input[type=number]:focus, textarea:focus {
+    outline: none; border-color: var(--accent-border); background: rgba(0,0,0,0.35);
+    box-shadow: 0 0 0 3px rgba(52,211,153,0.1);
+  }
+  textarea { min-height: 52px; resize: vertical; }
+  input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+
+  /* ---------- buttons ---------- */
+
+  button {
+    font-family: var(--font-sans); font-size: 12.5px; font-weight: 600;
+    padding: 8px 15px; border-radius: 999px; border: 1px solid var(--border);
+    background: rgba(255,255,255,0.03); color: var(--fg); cursor: pointer;
+    transition: border-color 150ms var(--ease), background-color 150ms var(--ease), transform 150ms var(--ease), box-shadow 150ms var(--ease);
+  }
+  button:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-hover); transform: translateY(-1px); }
+  button:active:not(:disabled) { transform: translateY(0); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: 0.32; cursor: not-allowed; transform: none; }
+
+  button.primary {
+    background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
+    color: var(--accent-fg); border-color: transparent;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2), 0 0 0 1px rgba(52,211,153,0.15);
+  }
+  button.primary:hover:not(:disabled) { box-shadow: 0 4px 16px rgba(52,211,153,0.35); }
+
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+
+  /* ---------- results ---------- */
+
+  .result {
+    margin-top: 12px; padding: 11px 13px; border-radius: var(--radius-sm);
+    font-family: var(--font-mono); font-size: 12px; white-space: pre-wrap; word-break: break-word;
+    border-left: 2px solid var(--border); animation: rise 200ms var(--ease);
+  }
+  .result.ok { background: var(--accent-soft); border-left-color: var(--accent); color: #d1fae5; }
+  .result.err { background: var(--danger-soft); border-left-color: var(--danger); color: #fecdd3; }
+
+  /* ---------- tables ---------- */
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted-2); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+  td.mono { font-family: var(--font-mono); }
+  tr:last-child td { border-bottom: none; }
+
+  /* ---------- policy grid ---------- */
+
+  .policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .policy-chip {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+    padding: 12px 14px; backdrop-filter: blur(12px);
+  }
+  .policy-chip .cap { font-family: var(--font-mono); font-size: 12.5px; }
+
+  /* ---------- audit log ---------- */
+
+  .audit-list { display: flex; flex-direction: column; gap: 2px; max-height: 480px; overflow-y: auto; padding-right: 4px; }
+  .audit-entry {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--font-mono); font-size: 12px; padding: 9px 4px;
+    border-bottom: 1px solid var(--border); animation: rise 240ms var(--ease);
+  }
+  .audit-entry:last-child { border-bottom: none; }
+  .audit-entry .rail-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; background: var(--muted-2); }
+  .audit-entry.ev-denied .rail-dot, .audit-entry.ev-failed .rail-dot { background: var(--danger); }
+  .audit-entry.ev-committed .rail-dot, .audit-entry.ev-called .rail-dot { background: var(--accent); }
+  .audit-entry.ev-verified .rail-dot, .audit-entry.ev-prepared .rail-dot { background: var(--warn); }
+  .audit-entry .time { color: var(--muted-2); font-size: 10.5px; flex-shrink: 0; }
+  .audit-entry .event-denied, .audit-entry .event-failed { color: var(--danger); font-weight: 600; }
+  .audit-entry .event-committed, .audit-entry .event-called { color: var(--accent); font-weight: 600; }
+  .audit-entry .event-verified, .audit-entry .event-prepared { color: var(--warn); font-weight: 600; }
+  .audit-entry .body-col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .audit-entry .lineage { color: var(--muted-2); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .audit-entry .lineage .sep { margin: 0 4px; opacity: 0.55; }
+
+  /* ---------- audit log: call-tree graph ---------- */
+
+  .audit-graph { overflow: auto; max-width: 100%; max-height: 560px; border-radius: var(--radius-lg); }
+  .audit-graph svg { display: block; flex-shrink: 0; }
+  .lg-edge { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
+  .lg-node rect {
+    fill: var(--surface); stroke: var(--border); stroke-width: 1;
+    transition: fill 150ms var(--ease), stroke 150ms var(--ease);
+  }
+  .lg-node:hover rect { stroke: var(--border-strong); fill: var(--surface-hover); }
+  .lg-node text { font-family: var(--font-mono); font-size: 11px; fill: var(--fg); dominant-baseline: middle; }
+  .lg-node .lg-sub { font-family: var(--font-sans); font-size: 9.5px; fill: var(--muted-2); }
+  .lg-node.lg-frame rect { fill: var(--surface); stroke: var(--border-strong); stroke-dasharray: none; }
+  .lg-node.lg-frame text { font-family: var(--font-sans); font-weight: 600; fill: var(--muted); }
+  .lg-node.lg-frame .lg-count {
+    font-family: var(--font-mono); font-weight: 500; fill: var(--muted-2); font-size: 10px;
+  }
+  .lg-node.lg-root rect { fill: transparent; stroke: none; }
+  .lg-node.lg-root text { font-weight: 600; fill: var(--muted); font-family: var(--font-sans); }
+  .lg-node.lg-dot { r: 4; }
+  .lg-node.ev-denied .lg-dot, .lg-node.ev-failed .lg-dot { fill: var(--danger); }
+  .lg-node.ev-committed .lg-dot, .lg-node.ev-called .lg-dot { fill: var(--accent); }
+  .lg-node.ev-verified .lg-dot, .lg-node.ev-prepared .lg-dot { fill: var(--warn); }
+  .lg-node.ev-rolled_back .lg-dot { fill: var(--info); }
+
+  /* ---------- misc ---------- */
+
+  .empty {
+    display: flex; align-items: center; gap: 10px;
+    color: var(--muted-2); font-size: 13px; padding: 18px 20px;
+    border: 1px dashed var(--border); border-radius: var(--radius-md);
+  }
+  .empty svg { flex-shrink: 0; opacity: 0.6; }
+  .tools-list, .mcp-list { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+
+  .menu-btn { display: none; }
+  .rail-backdrop { display: none; }
+
+  @media (max-width: 860px) {
+    .rail { position: fixed; z-index: 30; transform: translateX(-100%); transition: transform 220ms var(--ease); box-shadow: 20px 0 60px rgba(0,0,0,0.6); }
+    .rail.open { transform: translateX(0); }
+    .rail-backdrop.open {
+      display: block; position: fixed; inset: 0; z-index: 29;
+      background: rgba(0,0,0,0.5); backdrop-filter: blur(2px);
+    }
+    main { padding-left: 20px; padding-right: 20px; }
+    .topbar { padding: 14px 16px; }
+    .menu-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 36px; height: 36px; border-radius: var(--radius-sm);
+      background: var(--surface); border: 1px solid var(--border); color: var(--fg);
+      flex-shrink: 0; cursor: pointer;
+    }
+    .topbar .path { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<a href="#main" class="sr-only">Skip to content</a>
+
+<div class="app">
+  <nav class="rail" id="app-rail" aria-label="Sections">
+    <div class="rail-brand">
+      <svg class="logo-mark" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 3L21 7.5V16.5L12 21L3 16.5V7.5L12 3Z" stroke="#34d399" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M12 12L21 7.5M12 12V21M12 12L3 7.5" stroke="#34d399" stroke-width="1.6" stroke-linejoin="round"/>
+      </svg>
+      <div>
+        sense
+        <small>INSPECTOR</small>
+      </div>
+    </div>
+
+    <div class="rail-nav" id="rail-nav">
+      <a class="rail-link" data-target="section-tools" href="#section-tools">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14.7 6.3a4 4 0 0 0-5.4 5l-6 6a2 2 0 0 0 2.8 2.8l6-6a4 4 0 0 0 5-5.4l-2.7 2.7-2-2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        Tools &amp; Skills <span class="count" id="count-tools">0</span>
+      </a>
+      <a class="rail-link" data-target="section-actions" href="#section-actions">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3L19 6V11C19 15.4 16 18.9 12 20C8 18.9 5 15.4 5 11V6L12 3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        Actions <span class="count" id="count-actions">0</span>
+      </a>
+      <a class="rail-link" data-target="section-agents" href="#section-agents">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="5" y="8" width="14" height="11" rx="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M9 8V6a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.6"/><circle cx="9.5" cy="13.5" r="1.1" fill="currentColor"/><circle cx="14.5" cy="13.5" r="1.1" fill="currentColor"/></svg>
+        Agents <span class="count" id="count-agents">0</span>
+      </a>
+      <a class="rail-link" data-target="section-memories" href="#section-memories">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="6" rx="7" ry="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 6V18C5 19.4 8.1 20.5 12 20.5C15.9 20.5 19 19.4 19 18V6" stroke="currentColor" stroke-width="1.6"/><path d="M5 12C5 13.4 8.1 14.5 12 14.5C15.9 14.5 19 13.4 19 12" stroke="currentColor" stroke-width="1.6"/></svg>
+        Memory <span class="count" id="count-memories">0</span>
+      </a>
+      <a class="rail-link" data-target="section-policy" href="#section-policy">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.6"/></svg>
+        Policy <span class="count" id="count-policy">0</span>
+      </a>
+      <a class="rail-link" data-target="section-mcp" href="#section-mcp">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 2V6M15 2V6M6 9H4M6 15H4M20 9H18M20 15H18M9 22V18M15 22V18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="6" y="6" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="1.6"/></svg>
+        MCP servers <span class="count" id="count-mcp">0</span>
+      </a>
+      <a class="rail-link" data-target="section-audit" href="#section-audit">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 12H7L9.5 6L14.5 18L17 12H21" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Audit log
+      </a>
+    </div>
+
+    <div class="rail-foot">read-only where it counts</div>
+  </nav>
+
+  <div class="rail-backdrop" id="rail-backdrop"></div>
+
+  <div class="content">
+    <div class="topbar">
+      <button class="menu-btn" id="menu-btn" aria-label="Open sections menu" aria-expanded="false" aria-controls="app-rail">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 6H21M3 12H21M3 18H21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <span class="path" id="path-label"></span>
+      <span class="dry-run-pill" id="dry-run-pill" hidden>dry run</span>
+      <span class="live-pill"><span class="live-dot"></span>live</span>
+    </div>
+
+    <main id="main">
+      <section class="panel" id="section-tools">
+        <div class="panel-head">
+          <span class="icon-badge"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M14.7 6.3a4 4 0 0 0-5.4 5l-6 6a2 2 0 0 0 2.8 2.8l6-6a4 4 0 0 0 5-5.4l-2.7 2.7-2-2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+          <h2>Tools &amp; Skills</h2>
+        </div>
+        <div id="tools-container"></div>
+      </section>
+
+      <section class="panel" id="section-actions">
+        <div class="panel-head">
+          <span class="icon-badge"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 3L19 6V11C19 15.4 16 18.9 12 20C8 18.9 5 15.4 5 11V6L12 3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+          <h2>Actions</h2>
+        </div>
+        <div id="actions-container"></div>
+      </section>
+
+      <section class="panel" id="section-agents">
+        <div class="panel-head">
+          <span class="icon-badge"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="5" y="8" width="14" height="11" rx="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M9 8V6a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.6"/><circle cx="9.5" cy="13.5" r="1.1" fill="currentColor"/><circle cx="14.5" cy="13.5" r="1.1" fill="currentColor"/></svg></span>
+          <h2>Agents</h2>
+        </div>
+        <div id="agents-container"></div>
+      </section>
+
+      <section class="panel" id="section-memories">
+        <div class="panel-head">
+          <span class="icon-badge"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="6" rx="7" ry="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 6V18C5 19.4 8.1 20.5 12 20.5C15.9 20.5 19 19.4 19 18V6" stroke="currentColor" stroke-width="1.6"/><path d="M5 12C5 13.4 8.1 14.5 12 14.5C15.9 14.5 19 13.4 19 12" stroke="currentColor" stroke-width="1.6"/></svg></span>
+          <h2>Memory</h2>
+        </div>
+        <div id="memories-container"></div>
+      </section>
+
+      <section class="panel" id="section-policy">
+        <div class="panel-head">
+          <span class="icon-badge"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.6"/></svg></span>
+          <h2>Policy &amp; capabilities</h2>
+        </div>
+        <div class="policy-grid" id="policy-container"></div>
+      </section>
+
+      <section class="panel" id="section-mcp">
+        <div class="panel-head">
+          <span class="icon-badge"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M9 2V6M15 2V6M6 9H4M6 15H4M20 9H18M20 15H18M9 22V18M15 22V18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="6" y="6" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="1.6"/></svg></span>
+          <h2>MCP servers</h2>
+        </div>
+        <div id="mcp-container"></div>
+      </section>
+
+      <section class="panel" id="section-audit">
+        <div class="panel-head">
+          <span class="icon-badge"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 12H7L9.5 6L14.5 18L17 12H21" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <h2>Audit log</h2>
+          <span class="view-toggle" role="group" aria-label="Audit log view">
+            <button type="button" id="audit-view-tree" class="active">Tree</button>
+            <button type="button" id="audit-view-list">List</button>
+          </span>
+        </div>
+        <div class="card audit-graph" id="audit-graph-container"></div>
+        <div class="card audit-list" id="audit-container" hidden></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+function el(tag, attrs, children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'text') node.textContent = v;
+    else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const child of children || []) {
+    if (child) node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+  }
+  return node;
+}
+
+function emptyState(text) {
+  return el('div', { class: 'empty' }, [
+    (() => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('width', '16'); s.setAttribute('height', '16'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('fill', 'none'); s.innerHTML = '<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/><path d="M9 9L15 15M15 9L9 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>'; return s; })(),
+    text,
+  ]);
+}
+
+async function apiGet(path) {
+  const res = await fetch(path);
+  return res.json();
+}
+
+async function apiPost(path, body) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  return res.json();
+}
+
+function badge(text, cls) {
+  return el('span', { class: 'badge' + (cls ? ' ' + cls : '') }, [el('span', { class: 'dot' }), text]);
+}
+
+// A docstring -- the first bare string in a tool/action/agent/fn body,
+// captured verbatim (already dedented/trimmed host-side, see values.py's
+// _extract_doc) -- is genuinely different from a tool's own `description`
+// (the short, required-for-ask_with_tools line a model sees): this is
+// the longer, human-facing explanation, shown separately, not merged in.
+function docBlock(doc) {
+  return doc ? el('p', { class: 'card-doc' }, [doc]) : null;
+}
+
+function paramInput(param) {
+  const schema = param.schema || {};
+  let input;
+  if (schema.type === 'boolean') {
+    input = el('input', { type: 'checkbox', 'data-param': param.name, 'data-kind': 'boolean' });
+  } else if (schema.type === 'integer' || schema.type === 'number') {
+    input = el('input', { type: 'number', 'data-param': param.name, 'data-kind': schema.type, step: schema.type === 'integer' ? '1' : 'any' });
+  } else if (schema.type === 'string') {
+    input = el('input', { type: 'text', 'data-param': param.name, 'data-kind': 'string' });
+  } else {
+    input = el('textarea', { 'data-param': param.name, 'data-kind': 'json', placeholder: 'JSON value' });
+  }
+  return input;
+}
+
+function readParamInputs(container) {
+  return Array.from(container.querySelectorAll('[data-param]')).map((input) => {
+    const kind = input.dataset.kind;
+    if (kind === 'boolean') return input.checked;
+    if (kind === 'integer') return input.value === '' ? 0 : parseInt(input.value, 10);
+    if (kind === 'number') return input.value === '' ? 0 : parseFloat(input.value);
+    if (kind === 'json') { try { return JSON.parse(input.value); } catch (e) { return input.value; } }
+    return input.value;
+  });
+}
+
+function showResult(container, response) {
+  const old = container.querySelector('.result');
+  if (old) old.remove();
+  const div = el('div', { class: 'result ' + (response.ok ? 'ok' : 'err') });
+  if (response.ok) {
+    const { ok, ...rest } = response;
+    div.textContent = JSON.stringify(rest, null, 2);
+  } else {
+    div.textContent = `${response.error}: ${response.message}`;
+  }
+  container.appendChild(div);
+}
+
+// ---------- Tools & Skills ----------
+
+function renderTool(name, spec) {
+  const card = el('div', { class: 'card' });
+  card.appendChild(el('div', { class: 'card-title' }, [
+    el('span', { class: 'name' }, [name + '(' + spec.params.map(p => p.name).join(', ') + ')']),
+    spec.async ? badge('async') : null,
+    spec.requires ? badge('requires ' + spec.requires) : badge('unrestricted'),
+    spec.returns ? badge('→ ' + spec.returns) : null,
+  ]));
+  if (spec.description) card.appendChild(el('p', { class: 'card-desc' }, [spec.description]));
+  if (spec.doc) card.appendChild(docBlock(spec.doc));
+
+  const paramsDiv = el('div', { class: 'params' });
+  for (const p of spec.params) {
+    paramsDiv.appendChild(el('div', { class: 'param-row' }, [
+      el('label', {}, [p.name, p.type ? el('span', { class: 'type-hint', text: p.type }) : null]),
+      paramInput(p),
+    ]));
+  }
+  card.appendChild(paramsDiv);
+
+  const btnRow = el('div', { class: 'btn-row' }, [
+    el('button', { class: 'primary', onclick: async () => {
+      const args = readParamInputs(paramsDiv);
+      const res = await apiPost(`/api/tool/${encodeURIComponent(name)}/call`, { args });
+      showResult(card, res);
+      refreshAuditLog();
+    }}, ['Call']),
+  ]);
+  card.appendChild(btnRow);
+  return card;
+}
+
+function renderSkill(name, spec) {
+  const card = el('div', { class: 'card' });
+  card.appendChild(el('div', { class: 'card-title' }, [
+    el('span', { class: 'name' }, [name]),
+    badge('skill', 'skill'),
+  ]));
+  card.appendChild(el('p', { class: 'card-desc' }, [spec.description]));
+  card.appendChild(el('div', { class: 'tools-list' }, ['tools: ' + spec.tools.join(', ')]));
+  return card;
+}
+
+// ---------- Actions ----------
+
+const actionStates = {}; // name -> { id, state } -- survives across the poll-driven re-renders below
+
+function renderAction(name, spec) {
+  const card = el('div', { class: 'card' });
+  card.appendChild(el('div', { class: 'card-title' }, [
+    el('span', { class: 'name' }, [name + '(' + spec.params.map(p => p.name).join(', ') + ')']),
+    badge(spec.kind, spec.kind),
+    spec.requires ? badge('requires ' + spec.requires) : badge('unrestricted'),
+    spec.requires_approval ? badge('requires approval') : null,
+    spec.has_rollback ? badge('has rollback') : null,
+  ]));
+  if (spec.doc) card.appendChild(docBlock(spec.doc));
+
+  const paramsDiv = el('div', { class: 'params' });
+  for (const p of spec.params) {
+    paramsDiv.appendChild(el('div', { class: 'param-row' }, [
+      el('label', {}, [p.name, p.type ? el('span', { class: 'type-hint', text: p.type }) : null]),
+      paramInput(p),
+    ]));
+  }
+  card.appendChild(paramsDiv);
+
+  const stateBadge = badge('not prepared');
+  const btnRow = el('div', { class: 'btn-row' });
+  const prepareBtn = el('button', { class: 'primary' }, ['Prepare']);
+  const verifyBtn = el('button', {}, ['Verify']);
+  const commitBtn = el('button', {}, ['Commit']);
+  const rollbackBtn = el('button', {}, ['Rollback']);
+  verifyBtn.disabled = true;
+  commitBtn.disabled = true;
+  rollbackBtn.disabled = true;
+  if (!spec.has_rollback || spec.kind !== 'reversible') rollbackBtn.style.display = 'none';
+
+  function setState(state) {
+    stateBadge.textContent = '';
+    stateBadge.appendChild(el('span', { class: 'dot' }));
+    stateBadge.appendChild(document.createTextNode(state));
+    stateBadge.className = 'badge ' + state;
+    verifyBtn.disabled = state !== 'prepared';
+    commitBtn.disabled = state !== 'verified';
+    rollbackBtn.disabled = state !== 'committed';
+  }
+
+  // A poll-driven refreshSurface() rebuilds this card from scratch every
+  // couple of seconds -- restore whatever state a prior Prepare/Verify/
+  // Commit already reached, so an in-flight lifecycle doesn't visually
+  // reset to "not prepared" out from under the user.
+  if (actionStates[name]) setState(actionStates[name].state);
+
+  prepareBtn.addEventListener('click', async () => {
+    const args = readParamInputs(paramsDiv);
+    const res = await apiPost(`/api/action/${encodeURIComponent(name)}/prepare`, { args });
+    showResult(card, res);
+    if (res.ok) { actionStates[name] = { id: res.id, state: res.state }; setState(res.state); }
+    refreshAuditLog();
+  });
+  // `res.state` is populated even on a denial/failure (the interpreter
+  // already moved the action to e.g. "denied" before raising) -- syncing
+  // on it regardless of `res.ok` keeps the button row from offering an
+  // action that would now just fail the same way again.
+  verifyBtn.addEventListener('click', async () => {
+    const id = actionStates[name].id;
+    const res = await apiPost(`/api/action/${id}/verify`, {});
+    showResult(card, res);
+    if (res.state) { actionStates[name].state = res.state; setState(res.state); }
+    refreshAuditLog();
+  });
+  commitBtn.addEventListener('click', async () => {
+    const id = actionStates[name].id;
+    const res = await apiPost(`/api/action/${id}/commit`, {});
+    showResult(card, res);
+    if (res.state) { actionStates[name].state = res.state; setState(res.state); }
+    refreshAuditLog();
+  });
+  rollbackBtn.addEventListener('click', async () => {
+    const id = actionStates[name].id;
+    const res = await apiPost(`/api/action/${id}/rollback`, {});
+    showResult(card, res);
+    if (res.state) { actionStates[name].state = res.state; setState(res.state); }
+    refreshAuditLog();
+  });
+
+  btnRow.appendChild(prepareBtn);
+  btnRow.appendChild(verifyBtn);
+  btnRow.appendChild(commitBtn);
+  btnRow.appendChild(rollbackBtn);
+  btnRow.appendChild(stateBadge);
+  card.appendChild(btnRow);
+  return card;
+}
+
+// ---------- Agents ----------
+
+function renderAgent(name, spec) {
+  const card = el('div', { class: 'card' });
+  card.appendChild(el('div', { class: 'card-title' }, [
+    el('span', { class: 'name' }, [name]),
+    spec.async ? badge('async') : null,
+    badge(spec.status, spec.status),
+  ]));
+  if (spec.doc) card.appendChild(docBlock(spec.doc));
+  if (spec.status === 'paused' && spec.pause_reason) {
+    card.appendChild(el('p', { class: 'card-desc' }, ['paused: ' + spec.pause_reason]));
+  }
+
+  const resumeInput = el('input', { type: 'text', placeholder: 'resume value (optional)' });
+  const startBtn = el('button', { class: 'primary' }, ['Start']);
+  const resumeBtn = el('button', {}, ['Resume']);
+  startBtn.disabled = spec.status !== 'created';
+  resumeBtn.disabled = spec.status !== 'paused';
+
+  startBtn.addEventListener('click', async () => {
+    const res = await apiPost(`/api/agent/${encodeURIComponent(name)}/start`, {});
+    showResult(card, res);
+    refreshDynamic();
+    refreshAuditLog();
+  });
+  resumeBtn.addEventListener('click', async () => {
+    let value = resumeInput.value;
+    try { value = JSON.parse(value); } catch (e) { /* keep as plain string */ }
+    const res = await apiPost(`/api/agent/${encodeURIComponent(name)}/resume`, { value });
+    showResult(card, res);
+    refreshDynamic();
+    refreshAuditLog();
+  });
+
+  const row = el('div', { class: 'btn-row' }, [startBtn, resumeInput, resumeBtn]);
+  card.appendChild(row);
+  return card;
+}
+
+// ---------- Memory ----------
+
+function renderMemory(name, spec) {
+  const card = el('div', { class: 'card' });
+  card.appendChild(el('div', { class: 'card-title' }, [
+    el('span', { class: 'name' }, [name]),
+    badge(spec.kind === 'persistent_memory' ? 'persistent' : 'session'),
+    spec.path ? badge(spec.path) : null,
+  ]));
+  const tableWrap = el('div', {});
+  card.appendChild(tableWrap);
+
+  const viewBtn = el('button', {}, ['View entries']);
+  viewBtn.addEventListener('click', async () => {
+    const res = await apiGet(`/api/memory/${encodeURIComponent(name)}`);
+    tableWrap.innerHTML = '';
+    if (!res.ok) { tableWrap.appendChild(el('div', { class: 'result err', text: res.message })); return; }
+    const entries = Object.entries(res.entries || {});
+    if (entries.length === 0) { tableWrap.appendChild(emptyState('nothing remembered yet')); return; }
+    const table = el('table', {});
+    table.appendChild(el('tr', {}, [el('th', { text: 'key' }), el('th', { text: 'value' }), spec.kind === 'persistent_memory' ? el('th', { text: '' }) : null]));
+    for (const [key, value] of entries) {
+      const row = el('tr', {}, [
+        el('td', { class: 'mono', text: key }),
+        el('td', { class: 'mono', text: JSON.stringify(value) }),
+      ]);
+      if (spec.kind === 'persistent_memory') {
+        const histCell = el('td', {});
+        const histBtn = el('button', { text: 'history' });
+        histBtn.addEventListener('click', async () => {
+          const h = await apiGet(`/api/memory/${encodeURIComponent(name)}/history/${encodeURIComponent(key)}`);
+          alert((h.history || []).join('\n'));
+        });
+        histCell.appendChild(histBtn);
+        row.appendChild(histCell);
+      }
+      table.appendChild(row);
+    }
+    tableWrap.appendChild(table);
+  });
+  card.appendChild(el('div', { class: 'btn-row' }, [viewBtn]));
+  return card;
+}
+
+// ---------- MCP / Policy / Audit ----------
+
+function renderMcpServer(name, spec) {
+  const card = el('div', { class: 'card' });
+  card.appendChild(el('div', { class: 'card-title' }, [
+    el('span', { class: 'name' }, [name]),
+    spec.capability ? badge('requires ' + spec.capability) : badge('unrestricted'),
+  ]));
+  card.appendChild(el('div', { class: 'mcp-list', text: 'tools: ' + spec.tools.join(', ') }));
+  return card;
+}
+
+function renderPolicy(policy) {
+  const container = document.getElementById('policy-container');
+  container.innerHTML = '';
+  const entries = Object.entries(policy);
+  document.getElementById('count-policy').textContent = entries.length;
+  if (entries.length === 0) { container.appendChild(emptyState('no capabilities declared')); return; }
+  for (const [cap, allowed] of entries) {
+    container.appendChild(el('div', { class: 'policy-chip' }, [
+      el('span', { class: 'cap', text: cap }),
+      badge(allowed ? 'allow' : 'deny', allowed ? 'allow' : 'deny'),
+    ]));
+  }
+}
+
+function renderAuditEntry(entry) {
+  const cls = 'ev-' + entry.event;
+  const lineage = entry.lineage || [];
+  // Indent by call depth so nested calls (a tool invoked from inside an
+  // agent's body, an action committed from inside another tool) read as a
+  // call tree rather than a flat list -- the lineage array itself, from
+  // Environment.get_lineage(), is already outermost-to-innermost.
+  const div = el('div', { class: 'audit-entry ' + cls, style: `margin-left: ${lineage.length * 16}px` });
+  div.appendChild(el('span', { class: 'rail-dot' }));
+  div.appendChild(el('span', { class: 'time', text: new Date(entry.timestamp * 1000).toLocaleTimeString() }));
+  const bodyCol = el('div', { class: 'body-col' });
+  if (lineage.length) {
+    const trail = el('div', { class: 'lineage' });
+    lineage.forEach((frame, i) => {
+      if (i > 0) trail.appendChild(el('span', { class: 'sep', text: '›' }));
+      trail.appendChild(document.createTextNode(frame));
+    });
+    bodyCol.appendChild(trail);
+  }
+  const body = el('span', {});
+  body.appendChild(document.createTextNode(`${entry.kind} '${entry.action_name}' → `));
+  body.appendChild(el('span', { class: 'event-' + entry.event, text: entry.event }));
+  if (entry.detail) body.appendChild(document.createTextNode(' (' + entry.detail + ')'));
+  bodyCol.appendChild(body);
+  div.appendChild(bodyCol);
+  return div;
+}
+
+// ---------- Audit log: call-tree graph ----------
+//
+// The list view above is complete but flat -- reading a real lineage out
+// of indentation and ">"-separated text doesn't actually read as a tree.
+// This builds an literal node-and-connector diagram instead: every unique
+// lineage path (e.g. "agent:disk_investigator") becomes one frame node,
+// and every audit event that happened at that exact path becomes its own
+// leaf node underneath it -- so three incidents that each call the same
+// *named* agent still show all three calls, just grouped by which call
+// path produced them rather than by when. Hand-rolled SVG, not a
+// library: this console has no CDN dependency of any kind by design (see
+// the module docstring), and an audit log is small enough that a manual
+// tree layout is plenty.
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function svgEl(tag, attrs, children) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+  for (const child of children || []) if (child) node.appendChild(child);
+  return node;
+}
+
+function buildLineageForest(entries) {
+  // `entries` arrives newest-first from the API; walk it oldest-first so
+  // a frame's children/events land in the order they actually happened.
+  const chronological = [...entries].reverse();
+  const root = { key: 'root', kind: 'root', label: 'top-level', children: [], childMap: new Map(), events: [] };
+  for (const e of chronological) {
+    let node = root;
+    for (const frame of (e.lineage || [])) {
+      if (!node.childMap.has(frame)) {
+        const sep = frame.indexOf(':');
+        const child = {
+          key: node.key + '/' + frame, kind: 'frame',
+          frameKind: sep === -1 ? frame : frame.slice(0, sep),
+          frameName: sep === -1 ? '' : frame.slice(sep + 1),
+          children: [], childMap: new Map(), events: [],
+        };
+        node.childMap.set(frame, child);
+        node.children.push(child);
+      }
+      node = node.childMap.get(frame);
+    }
+    node.events.push(e);
+  }
+  return root;
+}
+
+function countLeaves(node) {
+  let total = node.events.length;
+  for (const child of node.children) total += countLeaves(child);
+  return total;
+}
+
+// Assigns every node (frame AND leaf-event) a {depth, row} position via a
+// depth-first walk, root first -- the same shape a file-tree/explorer
+// view uses. Returns a flat list of laid-out nodes plus the parent-child
+// edges between them, ready to draw.
+function layoutLineageForest(root) {
+  const nodes = [];
+  const edges = [];
+  let row = 0;
+
+  function visit(node, depth, parent) {
+    const laidOut = { node, depth, row };
+    nodes.push(laidOut);
+    if (parent) edges.push({ from: parent, to: laidOut });
+    row += 1;
+    for (const child of node.children) visit(child, depth + 1, laidOut);
+    for (const ev of node.events) {
+      const evLaidOut = { node: { kind: 'event', event: ev }, depth: depth + 1, row };
+      nodes.push(evLaidOut);
+      edges.push({ from: laidOut, to: evLaidOut });
+      row += 1;
+    }
+    return laidOut;
+  }
+  visit(root, 0, null);
+  return { nodes, edges, rowCount: row };
+}
+
+const LG_ROW_H = 40;
+const LG_NODE_H = 26;
+const LG_MARGIN = 16;
+const LG_COL_GAP = 44;
+const LG_MIN_W = 90;
+const LG_MAX_W = 300;
+const LG_MONO_CHAR_W = 6.7;   // ~11px monospace, rough but consistent
+const LG_SANS_CHAR_W = 6.1;   // ~11px sans, for frame labels
+
+// Each node's on-screen label and unclamped "natural" width, computed up
+// front so column widths can be sized to what's actually in them --
+// short labels get a tight box, long ones (a long action name, a long
+// `detail`) get more room instead of every column paying for the widest
+// possible name.
+function labelAndWidth(node) {
+  if (node.kind === 'root') {
+    return { label: node.label, natural: node.label.length * LG_SANS_CHAR_W + 4 };
+  }
+  if (node.kind === 'frame') {
+    const label = `${node.frameKind} ${node.frameName}`;
+    return { label, natural: 10 + label.length * LG_SANS_CHAR_W + 10 + 22 };  // + count badge room
+  }
+  const entry = node.event;
+  const label = `${entry.kind} '${entry.action_name}' → ${entry.event}`;
+  return { label, natural: 22 + label.length * LG_MONO_CHAR_W + 12 };
+}
+
+function truncateMiddle(text, maxChars) {
+  if (text.length <= maxChars) return text;
+  const head = Math.ceil((maxChars - 1) / 2);
+  const tail = Math.floor((maxChars - 1) / 2);
+  return text.slice(0, head) + '…' + text.slice(text.length - tail);
+}
+
+function renderAuditGraph(entries) {
+  const container = document.getElementById('audit-graph-container');
+  container.innerHTML = '';
+  if (!entries.length) { container.appendChild(emptyState('no events yet')); return; }
+
+  const forest = buildLineageForest(entries);
+  const { nodes, edges, rowCount } = layoutLineageForest(forest);
+
+  // Pass 1: each node's clamped width, and the widest node per column.
+  const colWidth = [];
+  for (const laid of nodes) {
+    const { label, natural } = labelAndWidth(laid.node);
+    laid.label = label;
+    laid.width = Math.max(LG_MIN_W, Math.min(LG_MAX_W, Math.ceil(natural)));
+    colWidth[laid.depth] = Math.max(colWidth[laid.depth] || 0, laid.width);
+  }
+  // Pass 2: cumulative x per column, from each column's own max width.
+  const colX = [LG_MARGIN];
+  for (let d = 1; d < colWidth.length; d++) colX[d] = colX[d - 1] + colWidth[d - 1] + LG_COL_GAP;
+
+  const totalWidth = colX[colWidth.length - 1] + colWidth[colWidth.length - 1] + LG_MARGIN;
+  const totalHeight = LG_MARGIN * 2 + rowCount * LG_ROW_H;
+  const y = (rowIdx) => LG_MARGIN + rowIdx * LG_ROW_H + LG_NODE_H / 2;
+
+  const svg = svgEl('svg', {
+    width: String(totalWidth), height: String(totalHeight), viewBox: `0 0 ${totalWidth} ${totalHeight}`,
+  });
+
+  for (const { from, to } of edges) {
+    const fx = colX[from.depth] + from.width;
+    const fy = y(from.row);
+    const tx = colX[to.depth];
+    const ty = y(to.row);
+    const midX = fx + Math.max(8, (tx - fx) / 2);
+    svg.appendChild(svgEl('path', { class: 'lg-edge', d: `M ${fx} ${fy} H ${midX} V ${ty} H ${tx}` }));
+  }
+
+  for (const laid of nodes) {
+    const { node, depth, row, label, width: w } = laid;
+    const bx = colX[depth];
+    const by = y(row) - LG_NODE_H / 2;
+
+    if (node.kind === 'root') {
+      svg.appendChild(svgEl('g', { class: 'lg-node lg-root' }, [
+        svgEl('text', { x: String(bx), y: String(y(row)) }, [document.createTextNode(label)]),
+      ]));
+      continue;
+    }
+
+    if (node.kind === 'frame') {
+      const total = countLeaves(node);
+      const title = svgEl('title', {}, [
+        document.createTextNode(`${node.frameKind} '${node.frameName}' -- ${total} event${total === 1 ? '' : 's'}`),
+      ]);
+      svg.appendChild(svgEl('g', { class: 'lg-node lg-frame' }, [
+        title,
+        svgEl('rect', { x: String(bx), y: String(by), width: String(w), height: String(LG_NODE_H), rx: '7' }),
+        svgEl('text', { x: String(bx + 10), y: String(y(row)) }, [document.createTextNode(label)]),
+        svgEl('text', { x: String(bx + w - 10), y: String(y(row)), class: 'lg-count', 'text-anchor': 'end' }, [
+          document.createTextNode(String(total)),
+        ]),
+      ]));
+      continue;
+    }
+
+    // A leaf: one real audit event.
+    const entry = node.event;
+    const title = svgEl('title', {}, [
+      document.createTextNode(label + (entry.detail ? ` (${entry.detail})` : '')),
+    ]);
+    svg.appendChild(svgEl('g', { class: `lg-node ev-${entry.event}` }, [
+      title,
+      svgEl('rect', { x: String(bx), y: String(by), width: String(w), height: String(LG_NODE_H), rx: '7' }),
+      svgEl('circle', { class: 'lg-dot', cx: String(bx + 12), cy: String(y(row)), r: '4' }),
+      svgEl('text', { x: String(bx + 22), y: String(y(row)) }, [
+        document.createTextNode(truncateMiddle(label, Math.floor((w - 30) / LG_MONO_CHAR_W))),
+      ]),
+    ]));
+  }
+
+  container.appendChild(svg);
+}
+
+// ---------- Refresh loops ----------
+
+function fillOrEmpty(containerId, items, renderFn, emptyText, countId) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  if (countId) document.getElementById(countId).textContent = items.length;
+  if (items.length === 0) { container.appendChild(emptyState(emptyText)); return; }
+  for (const item of items) container.appendChild(renderFn(item));
+}
+
+// Tools/actions/memories/skills/mcp servers are the program's
+// *declared* surface -- fixed for the life of the process, since nothing
+// in this console renames or removes a declaration. Rendering them once
+// (rather than on every poll) means an in-progress "try it out" form, or a
+// half-typed argument, never gets silently wiped out from under the user
+// by a refresh timer -- a real bug caught by testing this in an actual
+// browser, not just reading the code. Only agent status and policy are
+// genuinely live (an agent's status can change from a click on THIS page,
+// or -- for an `async agent` -- from its own background thread), so only
+// those two re-render on an interval.
+
+async function renderStaticSurfaceOnce() {
+  const surface = await apiGet('/api/surface');
+
+  // Fixed for the process's whole lifetime -- set once, not re-checked on
+  // every poll, same reasoning as everything else this function renders.
+  document.getElementById('dry-run-pill').hidden = !surface.dry_run;
+
+  const toolsContainer = document.getElementById('tools-container');
+  toolsContainer.innerHTML = '';
+  const toolEntries = Object.entries(surface.tools);
+  const skillEntries = Object.entries(surface.skills);
+  document.getElementById('count-tools').textContent = toolEntries.length + skillEntries.length;
+  if (toolEntries.length === 0 && skillEntries.length === 0) {
+    toolsContainer.appendChild(emptyState('no tools or skills declared'));
+  } else {
+    for (const [name, spec] of skillEntries) toolsContainer.appendChild(renderSkill(name, spec));
+    for (const [name, spec] of toolEntries) toolsContainer.appendChild(renderTool(name, spec));
+  }
+
+  fillOrEmpty('actions-container', Object.entries(surface.actions), ([n, s]) => renderAction(n, s), 'no actions declared', 'count-actions');
+  fillOrEmpty('memories-container', Object.entries(surface.memories), ([n, s]) => renderMemory(n, s), 'no memory declared', 'count-memories');
+  fillOrEmpty('mcp-container', Object.entries(surface.mcp_servers), ([n, s]) => renderMcpServer(n, s), 'no MCP servers connected', 'count-mcp');
+
+  await refreshDynamic();
+}
+
+async function refreshDynamic() {
+  const surface = await apiGet('/api/surface');
+  fillOrEmpty('agents-container', Object.entries(surface.agents), ([n, s]) => renderAgent(n, s), 'no agents declared', 'count-agents');
+  renderPolicy(surface.policy);
+}
+
+async function refreshAuditLog() {
+  const res = await apiGet('/api/audit-log');
+  const entries = res.entries || [];
+  fillOrEmpty('audit-container', entries, renderAuditEntry, 'no events yet');
+  renderAuditGraph(entries);
+}
+
+function setupAuditViewToggle() {
+  const treeBtn = document.getElementById('audit-view-tree');
+  const listBtn = document.getElementById('audit-view-list');
+  const treeContainer = document.getElementById('audit-graph-container');
+  const listContainer = document.getElementById('audit-container');
+  treeBtn.addEventListener('click', () => {
+    treeBtn.classList.add('active');
+    listBtn.classList.remove('active');
+    treeContainer.hidden = false;
+    listContainer.hidden = true;
+  });
+  listBtn.addEventListener('click', () => {
+    listBtn.classList.add('active');
+    treeBtn.classList.remove('active');
+    listContainer.hidden = false;
+    treeContainer.hidden = true;
+  });
+}
+
+// ---------- Rail nav: active-section highlight + smooth scroll ----------
+
+function setupMobileRailToggle() {
+  const rail = document.getElementById('app-rail');
+  const backdrop = document.getElementById('rail-backdrop');
+  const menuBtn = document.getElementById('menu-btn');
+
+  function closeRail() {
+    rail.classList.remove('open');
+    backdrop.classList.remove('open');
+    menuBtn.setAttribute('aria-expanded', 'false');
+  }
+  function openRail() {
+    rail.classList.add('open');
+    backdrop.classList.add('open');
+    menuBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  menuBtn.addEventListener('click', () => {
+    rail.classList.contains('open') ? closeRail() : openRail();
+  });
+  backdrop.addEventListener('click', closeRail);
+  return closeRail;
+}
+
+function setupRailNav() {
+  const closeMobileRail = setupMobileRailToggle();
+  const links = Array.from(document.querySelectorAll('.rail-link'));
+  links.forEach((link) => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      closeMobileRail();
+      document.getElementById(link.dataset.target).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  const sections = links.map((l) => document.getElementById(l.dataset.target)).filter(Boolean);
+  if (!('IntersectionObserver' in window) || sections.length === 0) return;
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          links.forEach((l) => l.classList.toggle('active', l.dataset.target === entry.target.id));
+        }
+      }
+    },
+    { rootMargin: '-10% 0px -70% 0px', threshold: 0 }
+  );
+  sections.forEach((s) => observer.observe(s));
+}
+
+document.getElementById('path-label').textContent = location.href;
+setupRailNav();
+setupAuditViewToggle();
+renderStaticSurfaceOnce();
+refreshAuditLog();
+setInterval(refreshDynamic, 2000);
+setInterval(refreshAuditLog, 1500);
+</script>
+</body>
+</html>

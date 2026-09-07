@@ -1,0 +1,24 @@
+# `tool` -- a capability-checked function.
+#
+# Distinct from `action`: calling a tool runs its body immediately, no
+# prepare -> verify -> commit lifecycle. It exists for things that aren't
+# necessarily world-changing (a search, a lookup) but should still be
+# typed, capability-gated, and audited -- unlike a bare `fn`.
+
+tool search(query: String) returns String requires web.search:
+    return "results for " + query
+
+policy: allow web.search
+
+print(search("sense lang"))
+
+# A tool with no `requires` clause is just a documented, typed interface --
+# unrestricted, same as a plain `fn`.
+tool add(a: Int, b: Int) returns Int:
+    return a + b
+
+print(add(2, 3))
+
+# Every tool call is recorded in the same audit log actions use.
+for line in audit_log():
+    print(line)

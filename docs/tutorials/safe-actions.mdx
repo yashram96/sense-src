@@ -1,0 +1,145 @@
+---
+title: "Tutorial: Safe Actions"
+description: action, verify, commit, policy, and rollback, hands-on — permissions and side effects that can't happen by accident.
+---
+
+You'll build a "send an email" action that can't accidentally send, can be
+blocked by policy, and — made reversible — can be undone. No API key
+needed; nothing here actually sends an email.
+
+## 1. Calling an action does nothing yet
+
+`action` looks like a function but behaves completely differently:
+calling it only *prepares* — the body doesn't run until you explicitly
+commit.
+
+```sns
+irreversible action send_mail(to: String, body: String) requires email.send:
+    print("SENDING to " + to + ": " + body)
+
+policy: allow email.send
+
+mail = send_mail("alice@example.com", "hi")
+print("called send_mail -- nothing sent yet")
+```
+```txt
+called send_mail -- nothing sent yet
+```
+
+No `"SENDING to..."` line printed. `mail` is a prepared action object, not
+a sent email.
+
+## 2. .verify(), then .commit()
+
+Two explicit steps stand between "prepared" and the real effect:
+
+```sns
+irreversible action send_mail(to: String, body: String) requires email.send:
+    print("SENDING to " + to + ": " + body)
+
+policy: allow email.send
+
+mail = send_mail("alice@example.com", "hi")
+print("state: " + mail.state)
+mail.verify()
+print("state: " + mail.state)
+mail.commit()
+print("state: " + mail.state)
+```
+```txt
+state: prepared
+state: verified
+SENDING to alice@example.com: hi
+state: committed
+```
+
+The body runs *inside* `.commit()` — that's the only place the real effect
+happens.
+
+## 3. Policy blocks it before it runs
+
+`requires email.send` names the permission this action needs. `policy:`
+grants or denies it. Deny it, and `.verify()` refuses before anything
+happens — not a soft warning, a real error:
+
+```sns
+irreversible action send_mail(to: String, body: String) requires email.send:
+    print("SENDING to " + to + ": " + body)
+
+policy: deny email.send
+
+mail = send_mail("alice@example.com", "hi")
+mail.verify()
+```
+```txt
+SenseError: [line 7] action 'send_mail' requires capability 'email.send', which is denied by policy
+```
+
+## 4. Make it undoable
+
+An email can't be unsent — that's why `send_mail` above is
+`irreversible`, and Sense won't let it declare an undo. Something that
+*can* be undone is `reversible`, and **must** declare `rollback:`:
+
+```sns
+reversible action update_bio(user: String, bio: String) requires profile.write:
+    print("SETTING " + user + "'s bio to: " + bio)
+rollback:
+    print("REVERTING " + user + "'s bio")
+
+policy: allow profile.write
+
+a = update_bio("alice", "new bio")
+a.verify()
+a.commit()
+print("state: " + a.state)
+
+a.rollback()
+print("state: " + a.state)
+```
+```txt
+SETTING alice's bio to: new bio
+state: committed
+REVERTING alice's bio
+state: rolled_back
+```
+
+`a.rollback()` re-checks the capability before running, same as
+`a.commit()` does — a policy change between commit and rollback is
+caught, not ignored.
+
+## `reversible` or `irreversible`?
+
+Ask one question: **does this have a real, expressible undo?**
+
+| | Use |
+|---|---|
+| Yes — revert a profile edit, cancel a reservation, deprovision a user | `reversible action ...:` **with** a `rollback:` block (required) |
+| No — send an email, charge a card, delete something for good | `irreversible action ...:` (no `rollback:` allowed) |
+
+Sense enforces this at parse time in both directions — you can't declare
+`reversible` without `rollback:`, and you can't add `rollback:` to
+`irreversible`.
+
+## What you built
+
+- `action` — calling it only prepares; the body runs inside `.commit()`
+- `requires <capability>` + `policy: allow/deny` — permission checked at `.verify()` and again at `.commit()`
+- `reversible action ... rollback: ...` — a mandatory, real undo; `.rollback()` runs it
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Pausable Agents" icon="pause" href="/tutorials/pausable-agents">
+    Next tutorial — a runtime entity that waits on a human, mid-task.
+  </Card>
+  <Card title="Actions & Policy" icon="shield-check" href="/safety/actions">
+    The full reference — audit logs, approval gates, dry runs.
+  </Card>
+  <Card title="Ask a Model" icon="circle-question" href="/tutorials/ask-a-model">
+    Previous tutorial, if you missed it.
+  </Card>
+  <Card title="Which keyword do I want?" icon="list-check" href="/reference/keywords#which-keyword-do-i-want">
+    `def` vs `tool` vs `action` vs `agent`, decided in one glance.
+  </Card>
+</CardGroup>

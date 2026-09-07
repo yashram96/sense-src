@@ -1,0 +1,41 @@
+# Phase 4: Action (prepare -> verify -> commit) and policy.
+#
+# Central law: preparing an action must never cause its external effect.
+# Calling send_mail(...) below does NOT send anything -- only .commit()
+# does.
+
+irreversible action send_mail(to: String, body: String) requires email.send:
+    print("SENDING to " + to + ": " + body)
+
+policy: allow email.send
+
+mail = send_mail("alice@example.com", "the meeting moved to 3pm")
+print("state after prepare: " + mail.state)  # "prepared" -- nothing sent yet
+
+mail.verify()
+print("state after verify: " + mail.state)  # "verified"
+
+mail.commit()  # only now does the effect happen
+print("state after commit: " + mail.state)  # "committed"
+
+# A denied capability blocks .verify() (and, independently, .commit() too --
+# verification is not a permanent guarantee, commit re-checks).
+irreversible action delete_account(user: String) requires account.delete:
+    print("DELETING " + user)
+
+policy: deny account.delete
+
+risky = delete_account("bob")
+# risky.verify()  # would raise SensePolicyError: denied by policy
+
+# policy scopes like delegation does -- a session or agent can grant itself
+# a capability without changing the outer policy.
+session checkout:
+    policy: allow account.delete
+    cleanup = delete_account("temp-user")
+    cleanup.verify()
+    cleanup.commit()
+
+# outside the session, account.delete is denied again:
+still_denied = delete_account("bob")
+# still_denied.verify()  # would still raise

@@ -1,0 +1,181 @@
+---
+title: Agent Concurrency Model
+description: How pause()/resume() work under the hood — real OS threads, cooperative hand-off for a sync agent, genuine concurrency (and its tradeoffs) for an async one.
+---
+
+<Info>
+Everything on this page describes a plain (sync) `agent` — unconditionally
+still true, zero change. `async agent` (see [Agents](/ai-native/agents#concurrency-async-agent))
+reuses this exact mechanism but skips the caller's blocking wait, which is
+enough to make "no locking needed" below stop holding — see
+[What changes for `async agent`](#what-changes-for-async-agent) at the end.
+</Info>
+
+## The constraint
+
+Real pause/resume — suspend an agent's execution mid-statement, with every
+local variable and every level of nested control flow intact, and continue
+it later from that exact point — usually means one of two things: rewrite
+the interpreter as a resumable state machine (generators/coroutines, or an
+explicit step-based trampoline with a serializable call stack), or find a
+way to get equivalent behavior from the host language for free.
+
+Sense's tree-walking interpreter does deep, ordinary Python recursion for
+every level of Sense-level nesting (an `if` inside a `while` inside a
+function call is three levels of nested Python calls). Rewriting that into
+generators would mean touching every single `_exec_*`/`_eval_*` method —
+correctness-critical, and a large surface for new bugs. The chosen
+alternative: get the suspension "for free" from the OS.
+
+## The mechanism: one thread per running agent, cooperative hand-off
+
+Each `SenseAgent` running via `start(...)` gets its own daemon
+`threading.Thread`, plus two `threading.Event` objects used purely as a
+one-directional signal ("go ahead"), never as a lock:
+
+<Frame>
+```txt
+Caller thread                        Agent thread
+──────────────                       ────────────
+start(agent)
+  spawn agent thread
+  block on settled_event    ──────►  runs agent body
+                                       ...
+                                       pause() called:
+                             ◄──────  set status = "paused"
+  wakes up, returns agent              signal settled_event
+                                       block on resume_event
+
+  (caller does other things)
+
+resume(agent)
+  clear settled_event
+  signal resume_event       ──────►  wakes up inside pause()
+  block on settled_event               clear resume_event, status = "running"
+                                       ...continues exactly where it was...
+                                       body finishes:
+                             ◄──────  status = "completed"
+  wakes up, returns agent              signal settled_event
+```
+</Frame>
+
+```python
+def _pause_agent(self, env, line, *args):
+    agent = env.get_current_agent()   # walks the scope chain -- see
+                                        # /architecture/scoping-and-delegation
+    agent.pause_reason = args[0] if args else None
+    agent.status = "paused"
+    agent._settled_event.set()    # wake whoever is blocked in start()/resume()
+    agent._resume_event.wait()    # block THIS thread until resume() signals it
+    agent._resume_event.clear()
+    agent.status = "running"
+```
+
+## Why a sync agent needs no locking
+
+For a plain (sync) `agent`, at every instant exactly one of the caller or
+the agent is actually executing Sense interpreter code — the other is
+parked in `Event.wait()`, which blocks without spinning and without
+touching shared state. This is **cooperative hand-off, not real
+concurrency**: nothing is ever running at the same time as anything else,
+so there's no race to guard against on `Environment` objects, the module
+cache, or anything else the interpreter touches. Real OS threads are used
+purely as a mechanism for "suspend this call stack and let me get back to
+it later" — not as a way to run two things at once.
+
+This guarantee is exactly what `async agent` gives up in exchange for
+genuine concurrency — see [What changes for `async agent`](#what-changes-for-async-agent)
+below.
+
+## Error handling across the boundary
+
+An exception raised inside the agent's body — whether before any `pause()`
+or after a `resume()` — is caught on the agent's own thread, recorded on
+the agent object, and the agent's thread signals `settled_event` one last
+time. Whichever thread was blocked in `start()`/`resume()` then re-raises
+that same exception itself, so it surfaces as an ordinary `SenseError`
+exactly at the `start(...)`/`resume(...)` call site — not as an uncaught
+exception on a background thread, which Python would otherwise silently
+print to stderr and ignore.
+
+```python
+def _run_agent_body(self, agent):
+    try:
+        try:
+            self._exec_block_statements(agent.decl.body.statements, agent.env, None)
+        except _Return:
+            pass  # a bare `return` just ends the body early
+        if agent.status == "running":
+            agent.status = "completed"
+    except BaseException as exc:
+        agent.status = "failed"
+        agent._pending_error = exc
+    finally:
+        agent._settled_event.set()
+```
+
+## Daemon threads: no cleanup required
+
+Agent threads are created with `daemon=True`. A paused agent nobody ever
+calls `resume()` on simply sits blocked on its `resume_event` forever —
+and that's fine, because daemon threads don't prevent the Python process
+from exiting. There's no explicit agent-cleanup API, and none is needed for
+correctness (only for reclaiming the thread's memory, which the OS/Python
+runtime handles at process exit either way).
+
+## What this deliberately doesn't provide
+
+<Warning>
+This is a suspension mechanism for exactly one agent at a time relative to
+its caller — not a concurrency or scheduling system.
+</Warning>
+
+- A plain (sync) `agent`'s `start`/`resume` is a fully blocking round-trip
+  — see below for what `async agent` changes about this.
+- An agent cannot pause or resume **another** agent from inside its own
+  body.
+- Nothing here is serializable — a paused agent's state is a live call
+  stack on a live OS thread, gone if the process exits. True persistence
+  across restarts would need a fundamentally different execution model (a
+  step-based/bytecode interpreter with frames that can actually be written
+  to disk), not an extension of this thread-based approach.
+
+See [Roadmap](/roadmap) (Phase 3) for these tracked as explicit,
+reasoned-about gaps rather than oversights.
+
+## What changes for `async agent`
+
+`start()`/`resume()` on an `async` agent (see
+[Agents#concurrency](/ai-native/agents#concurrency-async-agent)) skip the
+`agent._settled_event.wait()` step in the diagram above and return
+immediately. Everything else — the agent thread, `pause()`, the
+`resume_event`/`settled_event` pair — is identical machinery; only the
+caller's willingness to block changes.
+
+That one change is enough to break the "no locking needed" argument this
+page opened with: with `async`, the caller and the agent's body (or two
+`async` agents) genuinely *can* both be executing Sense interpreter code at
+the same instant — that's the whole point. Nothing about `Environment`,
+`SenseMemory`, or any other mutable runtime object was built with
+thread-safety in mind, because until `async` existed, nothing needed it
+(true mutual exclusion was structural, not just assumed). Two `async`
+bodies (or an async body and its caller) writing to the same shared scope
+or `memory` concurrently can therefore race — plain, undefended Python
+threading semantics, same as writing multi-threaded Python without a lock.
+No mutex/channel/atomic primitive exists in Sense to guard against this; it
+is a real, currently unmitigated gap, not an oversold "it's fine because
+of the GIL" — the GIL only serializes individual Python bytecodes, not a
+Sense-level statement, so a check-then-write sequence (like
+`Environment.define_or_assign` walking the parent chain) is not atomic
+across two threads.
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Pause & resume" icon="pause" href="/ai-native/pause-resume">
+    The user-facing feature this implements.
+  </Card>
+  <Card title="Scoping & delegation" icon="layer-group" href="/architecture/scoping-and-delegation">
+    The related fix this same work required.
+  </Card>
+</CardGroup>

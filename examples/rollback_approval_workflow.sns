@@ -1,0 +1,88 @@
+# One incident, start to finish: an agent investigates a failing service
+# and proposes a rollback; nothing runs until a human signs off; policy
+# and approval are both real gates, not decoration. Run it:
+#
+# sense run examples/rollback_approval_workflow.sns
+#
+# The failure companion to this file is
+# examples/rollback_approval_workflow_failure.sns -- read that one's own
+# header before running it; it's *supposed* to end in an uncaught error.
+
+# -- Evidence-gathering: capability-checked functions, not world-changing,
+# so `tool`, not `action`.
+tool check_error_rate(service: String) returns String "check a service's current error rate":
+    return service + " is returning 500s on 41% of requests (baseline: 0.2%)"
+
+tool check_recent_deploys(service: String) returns String "look up a service's recent deployments":
+    return service + " deployed build #482 fourteen minutes ago (previous: #481)"
+
+# -- The rollback itself changes the outside world, so it's an action, not
+# a tool: calling it only prepares a `SenseAction`, it does not run.
+# `irreversible`, not `reversible` -- redeploying build #481 is a new
+# deploy, not an undo of *this* rollback, so there's no honest `rollback:`
+# to write for it. `requires` names both a capability and a mandatory
+# human approval -- capability alone isn't enough for this one.
+irreversible action revert_deploy(service: String, to_build: String) requires deploy.rollback, approval:
+    print("  -> redeploying " + service + " to build " + to_build)
+
+print("=== 1. the agent investigates checkout-api ===")
+agent investigator:
+    error_report = check_error_rate("checkout-api")
+    deploy_report = check_recent_deploys("checkout-api")
+    print(error_report)
+    print(deploy_report)
+
+start(investigator)
+
+print("")
+print("=== 2. it prepares a rollback -- without running it ===")
+proposal = revert_deploy("checkout-api", "#481")
+print("state: " + proposal.state)  # "prepared" -- nothing has happened yet
+
+print("")
+print("=== 3. a developer inspects the proposal ===")
+print("action:    revert_deploy")
+print("service:   checkout-api")
+print("to build:  #481")
+print("state:     " + proposal.state)
+print("this has NOT run -- .commit() is the only thing that would run it")
+
+# -- 4. Policy blocks an unauthorized operation --
+# Nobody has granted `deploy.rollback` yet, and default-allow only covers
+# capabilities nobody's policy ever mentions -- this one is explicitly
+# denied until an on-call session says otherwise.
+policy: deny deploy.rollback
+# proposal.verify()  # would raise SensePolicyError: denied by policy
+
+print("")
+print("=== 4. a bystander outside the on-call session can't run this ===")
+print("deploy.rollback is denied here -- verify() would raise SensePolicyError")
+
+print("")
+print("=== 5. the on-call engineer's session grants the capability -- but")
+print("       still needs a human to approve it ===")
+session oncall:
+    policy: allow deploy.rollback
+
+    proposal.verify()
+    print("state after verify: " + proposal.state)
+
+    agent reviewer:
+        answer = ask_human("approve rolling checkout-api back to build #481? (yes/no)")
+        if answer == "yes":
+            proposal.approve()
+
+    start(reviewer)
+    print("  " + reviewer.pause_reason)
+    resume(reviewer, "yes")
+    print("approved: " + str(proposal.approved))
+
+    print("")
+    print("=== 6. it executes, and the outcome is recorded ===")
+    proposal.commit()
+    print("state after commit: " + proposal.state)
+
+print("")
+print("=== audit trail ===")
+for line in audit_log():
+    print(line)

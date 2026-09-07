@@ -1,0 +1,35 @@
+# A second real model provider: `inference("openai", ...)`.
+#
+# Same `ask()`/`Answer` surface as real_model_basics.sns and
+# ask_basics.sns -- the runtime decides how reasoning is implemented, so
+# switching providers (mock, Anthropic, OpenAI) needs no other code
+# change. This file exists specifically to prove that claim: it's
+# real_model_basics.sns with `"anthropic"` swapped for
+# `"openai"`, nothing else different -- one function, not two separate
+# ones to learn per vendor.
+#
+# Requires a real OPENAI_API_KEY (this makes a real, costed network call)
+# -- this example checks for it first and skips gracefully if it's not
+# set, so it stays runnable (and free) in CI/offline.
+
+import python "os" as os
+
+if os.environ.get("OPENAI_API_KEY") == nil:
+    print("skip: set OPENAI_API_KEY to run this example")
+else:
+    model gpt = inference("openai", "gpt-5.4-mini", temperature: 0.3)
+
+    # A real call costs money and sends prompt data to a third party --
+    # that's exactly why it's capability-gated, unlike inference("mock", ...).
+    # This policy is optional: with no policy at all, the call is allowed by
+    # default, same as `tool`/`action`.
+    policy: allow model.openai
+
+    set delegation = gpt
+    result = ask("in one short sentence, why might someone want an AI-native programming language?")
+
+    print(result.value)
+    print(result.confidence)  # nil -- no fabricated confidence, unlike inference("mock", ...)
+
+    for line in audit_log():
+        print(line)  # the real call is recorded, unlike a mock one

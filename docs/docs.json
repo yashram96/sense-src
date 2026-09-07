@@ -1,0 +1,139 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Sense",
+  "description": "Sense — a programming language for probabilistic and autonomous computation.",
+  "colors": {
+    "primary": "#7C5CFC",
+    "light": "#A78BFA",
+    "dark": "#4C1D95"
+  },
+  "favicon": "/favicon.png",
+  "logo": {
+    "light": "/logo-light.png",
+    "dark": "/logo-dark.png",
+    "href": "https://sensecode.dev"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Website",
+        "href": "https://sensecode.dev"
+      }
+    ]
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Get Started",
+        "groups": [
+          {
+            "group": "Start here",
+            "pages": ["index", "quickstart", "installation"]
+          }
+        ]
+      },
+      {
+        "tab": "Tutorials",
+        "groups": [
+          {
+            "group": "Learn by building",
+            "pages": [
+              "tutorials/ask-a-model",
+              "tutorials/safe-actions",
+              "tutorials/pausable-agents"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Language",
+            "pages": [
+              "language/values-and-types",
+              "language/variables-and-scope",
+              "language/functions",
+              "language/control-flow",
+              "language/arrays",
+              "language/modules",
+              "language/python-interop",
+              "language/testing"
+            ]
+          },
+          {
+            "group": "AI-Native",
+            "pages": [
+              "ai-native/model-ask-answer",
+              "ai-native/sessions",
+              "ai-native/agents",
+              "ai-native/pause-resume",
+              "ai-native/tool",
+              "ai-native/tool-calling",
+              "ai-native/memory",
+              "ai-native/skills",
+              "ai-native/mcp"
+            ]
+          },
+          {
+            "group": "Safety",
+            "pages": ["safety/actions", "safety/policy"]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Look something up",
+            "pages": [
+              "reference/keywords",
+              "reference/grammar",
+              "reference/builtins",
+              "reference/errors",
+              "reference/cli",
+              "reference/formatter"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": ["examples"]
+          }
+        ]
+      },
+      {
+        "tab": "Scope & Roadmap",
+        "groups": [
+          {
+            "group": "Where this stands",
+            "pages": ["roadmap", "comparison", "faq"]
+          },
+          {
+            "group": "Why Sense exists",
+            "pages": [
+              "philosophy/thesis",
+              "philosophy/computational-model",
+              "philosophy/design-order",
+              "philosophy/non-goals"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Architecture",
+        "groups": [
+          {
+            "group": "How the runtime works",
+            "pages": [
+              "architecture/pipeline",
+              "architecture/indentation-lexing",
+              "architecture/scoping-and-delegation",
+              "architecture/agent-concurrency"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
