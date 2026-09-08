@@ -1,7 +1,6 @@
-"""Phase 4 follow-ups: a declared 'requires approval' marker on `action`,
-and an audit log recording every prepared/verified/committed/denied/failed
-event. Both close gaps explicitly tracked in docs/ROADMAP.md after
-ask_human shipped."""
+"""A declared 'requires approval' marker on `action`, and an audit log
+recording every prepared/verified/committed/denied/failed event — both
+added after ask_human shipped."""
 
 from textwrap import dedent
 

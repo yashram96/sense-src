@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="images/sense_file_icon.png" alt="" width="84">
+  <img src="https://raw.githubusercontent.com/yashram96/sense-src/master/images/sense_file_icon.png" alt="" width="84">
 </p>
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="images/sense_logo_white_transarent.png">
-    <source media="(prefers-color-scheme: light)" srcset="images/sense_logo_black_transarent.png">
-    <img src="images/sense_logo_black_transarent.png" alt="Sense" width="280">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/yashram96/sense-src/master/images/sense_logo_white_transarent.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/yashram96/sense-src/master/images/sense_logo_black_transarent.png">
+    <img src="https://raw.githubusercontent.com/yashram96/sense-src/master/images/sense_logo_black_transarent.png" alt="Sense" width="280">
   </picture>
 </p>
 
@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://pypi.org/project/sense-lang/"><img src="https://img.shields.io/pypi/v/sense-lang.svg" alt="PyPI version"></a>
   <a href="https://pypi.org/project/sense-lang/"><img src="https://img.shields.io/pypi/pyversions/sense-lang.svg" alt="Python versions"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT licensed"></a>
+  <a href="https://github.com/yashram96/sense-src/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT licensed"></a>
 </p>
 
 <p align="center">
@@ -129,4 +129,4 @@ pytest -q
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/yashram96/sense-src/blob/master/LICENSE).

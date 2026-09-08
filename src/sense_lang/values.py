@@ -120,7 +120,7 @@ class Answer:
     be able to say "I infer this with
     N% confidence" instead of treating AI output as a plain, trusted
     value. `.value` access is always explicit — there is no implicit
-    unwrapping (see docs/LANGUAGE_v0.2.md).
+    unwrapping.
     """
 
     value: Any
@@ -536,10 +536,10 @@ def type_name(value: Any) -> str:
 def matches_type(value: Any, annotation: n.TypeAnnotation) -> bool:
     """Best-effort structural check of a runtime value against a declared type.
 
-    This is intentionally shallow (Phase 1 has no full static type inference —
-    see docs/ROADMAP.md, Phase-1 scope note). It catches the common mistakes
-    (wrong primitive kind, wrong array element type) without pretending to be
-    a real type checker.
+    This is intentionally shallow — Sense has no full static type inference
+    yet, by design (a runtime check, not a type system in the PL-theory
+    sense). It catches the common mistakes (wrong primitive kind, wrong
+    array element type) without pretending to be a real type checker.
     """
     name = annotation.name
     if name == "Any":

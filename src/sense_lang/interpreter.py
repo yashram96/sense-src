@@ -1541,7 +1541,7 @@ class Interpreter:
             self._require_numeric(left, right, "/", expr.line)
             if right == 0:
                 raise SenseRuntimeError("division by zero", expr.line)
-            return left / right  # '/' is always true (Float) division; see docs/LANGUAGE_v0.1.md
+            return left / right  # '/' is always true (Float) division, by design
         if op == "%":
             self._require_numeric(left, right, "%", expr.line)
             if right == 0:
